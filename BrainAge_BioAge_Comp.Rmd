@@ -1,0 +1,26 @@
+---
+title: "BrainAge_BioAge_Comp"
+output: html_document
+date: "2023-03-08"
+---
+
+
+```{r}
+kdm_data_brain$eventname <- kdm_data_brain$eventname.y
+kdm_data$eventname <- kdm_data$eventname.y.x
+
+bio_brain_age <- merge(kdm_data_brain, kdm_data, by = c("subjectkey", "eventname"))
+nrow(bio_brain_age)
+```
+
+
+```{r}
+plot(kdm_data_brain$kdm, kdm_data$kdm)
+```
+
+
+
+
+
+
+

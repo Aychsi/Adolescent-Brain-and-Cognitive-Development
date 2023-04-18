@@ -1,0 +1,437 @@
+---
+title: "BrainAge_GMV"
+output: html_document
+date: "2023-03-15"
+---
+
+
+# Libraries
+```{r}
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(stringr)
+library(devtools)
+library(neuroCombat)
+library(tidyr)
+library(reshape2)
+```
+
+# Read in data and get only necessary columns
+```{r}
+smrip <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_smrip10201.txt")
+colnames(smrip)
+
+# Select only cortical volume measures
+# Include summary measures as well for now
+# Make sure to not include white matter (ex. corpus callosum) or ventricles
+smrip_gvol <- smrip %>% select(c("subjectkey", "sex", "eventname", "interview_age",
+                                "smri_vol_cdk_banksstslh":"smri_vol_cdk_insularh", 
+                            "smri_vol_cdk_totallh":"smri_vol_cdk_total", 
+                            "smri_vol_scs_crbcortexlh":"smri_vol_scs_pallidumlh",
+                            "smri_vol_scs_hpuslh":"smri_vol_scs_amygdalalh", 
+                            "smri_vol_scs_aal":"smri_vol_scs_vedclh", 
+                            "smri_vol_scs_crbcortexrh":"smri_vol_scs_amygdalarh", 
+                            "smri_vol_scs_aar":"smri_vol_scs_vedcrh", "smri_vol_scs_subcorticalgv"))
+
+smrip_gvol[smrip_gvol == ""] <- NA
+smrip_gvol <- smrip_gvol[-1,]
+smrip_gvol <- smrip_gvol[complete.cases(smrip_gvol), ]
+
+skim(smrip_gvol)
+head(smrip_gvol)
+```
+
+```{r}
+smrip_h %>% filter(src_subject_id == "NDAR_INV022ZVCT8")
+smrip_gvol %>% filter(subjectkey == "NDAR_INV022ZVCT8")
+```
+
+
+# Read in Harmonized Data
+```{r}
+smrip_h <- read.csv("/Users/hansoochang/Drexel/ABCD/data/sMRI_CorticalVolume-APARC_2yearfollow-up_ComBatHarmonized_interview_age.csv")
+tail(smrip_h)
+colnames(smrip_h)
+
+# Select only cortical volume measures
+# Include summary measures as well for now
+# Make sure to not include white matter (ex. corpus callosum) or ventricles
+smrip_gvol <- smrip %>% select(c("subjectkey", "sex", "eventname", "interview_age",
+                                "smri_vol_cdk_banksstslh":"smri_vol_cdk_insularh", 
+                            "smri_vol_cdk_totallh":"smri_vol_cdk_total", 
+                            "smri_vol_scs_crbcortexlh":"smri_vol_scs_pallidumlh",
+                            "smri_vol_scs_hpuslh":"smri_vol_scs_amygdalalh", 
+                            "smri_vol_scs_aal":"smri_vol_scs_vedclh", 
+                            "smri_vol_scs_crbcortexrh":"smri_vol_scs_amygdalarh", 
+                            "smri_vol_scs_aar":"smri_vol_scs_vedcrh", "smri_vol_scs_subcorticalgv"))
+
+smrip_gvol[smrip_gvol == ""] <- NA
+smrip_gvol <- smrip_gvol[-1,]
+smrip_gvol <- smrip_gvol[complete.cases(smrip_gvol), ]
+
+skim(smrip_gvol)
+head(smrip_gvol)
+```
+
+
+
+
+# Quality Control for sMRI (Freesurfer)
+Exclusion is recommended if any of the five categories are rated as severe (a value of 3).
+https://www.sciencedirect.com/science/article/pii/S1053811919306822
+
+2.5.4. Post-processed sMRI quality control
+reviewers gauge the severity of five categories of image artifact or reconstruction inaccuracy: motion, intensity inhomogeneity, white matter underestimation, pial overestimation, and magnetic susceptibility artifact. Numeric values are assigned on a scale of 0–3, indicating absent, mild, moderate, and severe levels of each type of artifact,
+respectively. The reviewers assign an overall QC score indicating whether the cortical surface reconstruction is recommended for use (1) or
+recommended for exclusion (0). Exclusion is recommended if any of the five categories are rated as severe (a value of 3).
+
+```{r}
+qc <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_fsurfqc01.txt")
+qc[qc == ""] <- NA
+qc <- qc[-1,]
+
+# Remove any empty cases
+qc <- subset(qc, complete.cases(qc[, c("subjectkey", "eventname")]))
+
+# Replace 0 with baseline_year_1_arm_1 for eventname
+qc$eventname <- ifelse(qc$eventname == "0", "baseline_year_1_arm_1", qc$eventname)
+
+# Remove any subjectkey less than 16 characters long
+qc$subjectkey <- ifelse(nchar(qc$subjectkey) < 16, NA, qc$subjectkey)
+
+qc <- subset(qc, complete.cases(qc[, c("subjectkey", "eventname")]))
+
+qc$paired <- paste(qc$subjectkey, qc$eventname)
+
+skim(qc)
+```
+
+
+# Select all rows with any artifacts above 3 and any value of fsqc_qc of 1
+```{r}
+# any value of fsqc_qc of 1
+qc_overall <- qc[qc$fsqc_qc == "1",]
+qc_overall <- qc_overall[!is.na(qc_overall$collection_id),]
+nrow(qc_overall) # 1671
+
+qc_art <- qc %>% select(subjectkey, sex, eventname, paired, fsqc_nrev:fsqc_qu_artifact)
+
+qc_art_meas <- qc_art %>% select(fsqc_qu_motion:fsqc_qu_artifact)
+
+# df with any measure at 3 (severe quality issue)
+qc_art_3 <- qc_art[apply(qc_art_meas > 2, 1, any, na.rm = TRUE), ]
+
+nrow(qc_art_3) # 942
+```
+
+
+# Remove participants with rejected QC values from smrip_gvol
+```{r}
+nrow(smrip_gvol) #44197
+nrow(qc_overall) #1671
+nrow(qc_art_3) #942
+
+# Remove any value of fsqc_qc of 1 from main GMV df
+smrip_gvol_qc <- anti_join(smrip_gvol, qc_overall, by = c("subjectkey", "eventname"))
+nrow(smrip_gvol_qc) # 42220
+
+# Remove any artifacts above value of 3
+smrip_gvol_qc <- anti_join(smrip_gvol_qc, qc_art_3, by = c("subjectkey", "eventname"))
+nrow(smrip_gvol_qc) # 41069
+
+smrip_dup <- smrip_gvol_qc[duplicated(smrip_gvol_qc$subjectkey) & duplicated(smrip_gvol_qc$eventname), ]
+
+# dataframe with duplicates in the post-qc smrip df
+## NB: Takes some time to run
+nrow(smrip_dup[order(smrip_dup$subjectkey),]) # 29703
+
+
+# Keep only one of the duplicated values.
+smrip_gvol_qc_uni <- unique(smrip_dup, by = c("subjectkey", "eventname"))
+nrow(smrip_gvol_qc_uni) #16499
+
+head(smrip_gvol_qc_uni[order(smrip_gvol_qc_uni$subjectkey, smrip_gvol_qc_uni$eventname),], 100)
+```
+
+# Convert sMRI values to numeric
+```{r}
+smrip_gvol_qc_uni <- smrip_gvol_qc_uni %>% 
+  mutate_at(vars(contains("smri")), as.numeric)
+
+smrip_gvol_qc_uni <- smrip_gvol_qc_uni[complete.cases(smrip_gvol_qc_uni), ]
+
+skim(smrip_gvol_qc_uni) # 16369
+```
+
+
+# Correct for Scanner differences 
+## read in file and merge
+```{r}
+mri <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_mri01.txt")
+mri[mri == ""] <- NA
+mri <- mri[-1,]
+
+# merge mri and gmv
+gmv_mri <- merge(smrip_gvol_qc_uni, mri, by = c("subjectkey", "eventname"))
+colnames(gmv_mri)
+
+gmv_mri <- gmv_mri %>% select(contains(c("subjectkey", "eventname", "smri", "mri_info")))
+
+```
+
+## prepare data for neuroCombat
+```{r}
+p=10000
+n=10
+batch = c(1,1,1,1,1,2,2,2,2,2) #Batch variable for the scanner id
+dat = matrix(runif(p*n), p, n) #Random Data matrix
+dat
+data.harmonized <- neuroCombat(dat=dat, batch=batch)
+
+head(gmv_mri)
+
+nrow(gmv_mri) # 35979
+gmv_mri <- gmv_mri %>% filter(grepl(paste0("^", "HASH"), mri_info_deviceserialnumber) &
+                        nchar(mri_info_deviceserialnumber) >= 10 & nchar(mri_info_deviceserialnumber) <= 20)
+nrow(gmv_mri) # 35890
+
+# 33 unique scanners
+table(gmv_mri$mri_info_deviceserialnumber)
+
+gmv_mri$paste <- paste(gmv_mri$subjectkey, gmv_mri$eventname)
+
+dupes <- duplicated(gmv_mri)
+gmv_mri_unique <- gmv_mri[!dupes, ]
+gmv_mri_unique <- gmv_mri_unique[!duplicated(gmv_mri_unique$paste),]
+```
+
+
+```{r}
+head(gmv_mri_unique)
+gmv_mri_unique_y2 <- gmv_mri_unique %>% filter(eventname == "2_year_follow_up_y_arm_1")
+gmv_mri_unique_b <- gmv_mri_unique %>% filter(eventname == "baseline_year_1_arm_1")
+
+
+melted_df <- melt(gmv_mri_unique_y2, id.vars = c("subjectkey", "eventname"))
+wide_df <- dcast(melted_df, variable + eventname ~ subjectkey, value.var = "value")
+
+
+match_list <- colnames(gmv_mri_unique_y2 %>% select(contains(c("smri", "mri_info_deviceserialnumber"))))
+
+gmv_mri_dat <- wide_df %>% filter(variable %in% match_list) %>% 
+  select(contains(c("variable", "NDAR"))) 
+
+gmv_mri_dat <- gmv_mri_dat[complete.cases(gmv_mri_dat), ]
+
+gmv_mri_dat[-91, -1] <- apply(gmv_mri_dat[-91, -1], 2, as.numeric)
+
+gmv_mri_dat <- gmv_mri_dat %>% select_if(~all(. >= 0))
+
+gmv_mri_batch <- gmv_mri_dat[91,]
+gmv_mri_dat <- gmv_mri_dat[-91,]
+
+gmv_mri_dat <- mutate_all(gmv_mri_dat, function(x) as.numeric(as.character(x)))
+
+
+length(gmv_mri_batch)
+dim(gmv_mri_dat)
+
+```
+
+## run neuroCombat
+```{r}
+rownames(gmv_mri_dat) <- NULL
+colnames(gmv_mri_dat) <- NULL
+
+
+as.character(gmv_mri_batch[1,])
+
+data.harmonized <- neuroCombat(dat=data.matrix(gmv_mri_dat), batch=as.character(gmv_mri_batch), eb = FALSE, parametric = FALSE)
+View(data.harmonized$dat.combat)
+View(gmv_mri_dat)
+
+```
+
+
+
+# Check Distributions.
+There seem to be outliers
+```{r}
+smri_list <- colnames(smrip_gvol_qc_uni %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_gvol_qc_uni[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+```
+
+# Remove Impossible Values
+```{r}
+# filter for any values greater than 3 SDs from the mean by column
+smri_outlier <- smrip_gvol_qc_uni %>% mutate(across(contains("smri"), ~ abs(scale(.)) > 3)) %>%
+  filter(rowSums(across(contains("smri"))) > 0)
+
+smri_outlier$paired <- paste(smri_outlier$subjectkey, smri_outlier$eventname)
+
+smrip_gvol_qc_uni$paired <- paste(smrip_gvol_qc_uni$subjectkey, smrip_gvol_qc_uni$eventname)
+
+# These are major outlier. Impossible values.
+smrip_gvol_qc_uni_outlier <- smrip_gvol_qc_uni %>% filter(paired %in% smri_outlier$paired)
+
+smrip_gvol_qc_uni_norm <- smrip_gvol_qc_uni %>% filter(!(paired %in% smri_outlier$paired))
+
+skim(smrip_gvol_qc_uni_outlier)
+skim(smrip_gvol_qc_uni_norm)
+
+
+### Check why there are so many negative values and very small values
+sort(smrip_gvol_qc_uni$smri_vol_cdk_banksstslh)
+sort(smrip_gvol_qc_uni$smri_vol_cdk_cdacatelh)
+```
+
+
+# See Distributions of truncated data
+```{r}
+smri_list <- colnames(smrip_gvol_qc_uni_norm %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_gvol_qc_uni_norm[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+skim(smrip_gvol_qc_uni_norm)
+```
+Check smri_vol_cdk_sufrrh to smri_vol_scs_subcroticalgv
+
+# Remove more extreme outliers
+```{r}
+more_outliers <- smrip_gvol_qc_uni_norm %>% select(paired, smri_vol_cdk_sufrrh:smri_vol_scs_subcorticalgv)
+more_outliers <- more_outliers %>% filter_all(any_vars(. < 100))
+
+smri_big_outlier <- more_outliers %>% mutate(across(contains("smri"), ~ abs(scale(.)) > 3)) %>%
+  filter(rowSums(across(contains("smri"))) > 0)
+
+# Remove any value below 100 which would be impossible
+smrip_gvol_qc_uni_big_norm <- 
+  smrip_gvol_qc_uni_norm[!apply(smrip_gvol_qc_uni_norm %>% 
+                                    select("smri_vol_cdk_banksstslh":"smri_vol_scs_subcorticalgv") < 100, 
+                                1, any, na.rm=TRUE), ]
+
+```
+
+
+# Check Distributions of all outliers removed
+```{r}
+smri_list <- colnames(smrip_gvol_qc_uni_big_norm %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_gvol_qc_uni_big_norm[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+skim(smrip_gvol_qc_uni_big_norm)
+
+```
+Seems pretty good. Will ask about large values.
+
+# Remove more outliers extremes
+```{r}
+smrip_gvol_qc_uni_big_norm <- smrip_gvol_qc_uni_big_norm %>% filter(!(smri_vol_cdk_lobfrlh < 5000 |
+                                      smri_vol_cdk_mobfrlh < 3000 |
+                                      smri_vol_cdk_paracnlh > 8000 |
+                                      smri_vol_cdk_parsobislh < 1500 |
+                                      smri_vol_cdk_postcnlh > 22500 |
+                                      smri_vol_cdk_precnlh < 7500 | 
+                                      smri_vol_cdk_rrmdfrlh < 7500 | 
+                                      smri_vol_cdk_insulalh > 12000 | smri_vol_cdk_insulalh < 3000 |
+                                      smri_vol_cdk_fusiformrh < 5000 |
+                                      smri_vol_cdk_ifplrh < 6000 |
+                                      smri_vol_cdk_iftmrh < 6000 |
+                                      smri_vol_cdk_ihcaterh < 1000 | smri_vol_cdk_ihcaterh > 5500 |
+                                      smri_vol_cdk_paracnrh > 9000 |
+                                      smri_vol_cdk_totallh < 1e+05 |
+                                      smri_vol_cdk_totalrh < 1e+05 | 
+                                      smri_vol_scs_crbcortexlh < 2000 | 
+                                      smri_vol_scs_tplh < 2000 | smri_vol_scs_tplh > 15000 |
+                                      smri_vol_scs_caudatelh < 1000 | smri_vol_scs_caudatelh > 7500 |
+                                      smri_vol_scs_putamenlh < 1000 | smri_vol_scs_putamenlh > 7500 |
+                                      smri_vol_scs_pallidumlh > 5000 |
+                                      smri_vol_scs_hpuslh > 20000 | 
+                                      smri_vol_scs_amygdalalh > 5000 | 
+                                      smri_vol_scs_aal > 8000 | 
+                                      smri_vol_scs_vedclh < 1000 | smri_vol_scs_vedclh > 10000 | 
+                                      smri_vol_scs_crbcortexrh < 20000 | smri_vol_scs_crbcortexrh < 30000 | 
+                                      smri_vol_scs_pallidumrh > 3250 |
+                                      smri_vol_scs_vedcrh < 2000 | smri_vol_scs_vedcrh > 7000 | 
+                                      smri_vol_scs_hpuslh > 7000 |
+                                      smri_vol_scs_subcorticalgv < 30000 | smri_vol_scs_subcorticalgv > 100000))
+
+nrow(smrip_gvol_qc_uni_big_norm) # 14558
+
+```
+
+# Check Distributions again
+```{r}
+smri_list <- colnames(smrip_gvol_qc_uni_big_norm %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_gvol_qc_uni_big_norm[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+skim(smrip_gvol_qc_uni_big_norm)
+```
+
+# Split into Timepoints (Without removing Outliers)
+## We will remove outliers after splitting into healthy and unhealthy
+## For comparison with Bio Age, we only need year 2
+```{r}
+smrip_gvol_qc_uni_y2 <- smrip_gvol_qc_uni %>% filter(eventname == "2_year_follow_up_y_arm_1")
+smrip_gvol_qc_uni_base <- smrip_gvol_qc_uni %>% filter(eventname == "baseline_year_1_arm_1")
+
+nrow(smrip_gvol_qc_uni_y2) # 6651
+nrow(smrip_gvol_qc_uni_base) # 9721
+
+write.csv(smrip_gvol_qc_uni, "/Users/hansoochang/Drexel/ABCD/data/smrip_gmv.csv")
+write.csv(smrip_gvol_qc_uni_y2, "/Users/hansoochang/Drexel/ABCD/data/smrip_gmv_y2.csv")
+write.csv(smrip_gvol_qc_uni_base, "/Users/hansoochang/Drexel/ABCD/data/smrip_gmv_base.csv")
+```
+
+
+
+# Split into Timepoints
+## For comparison with Bio Age, we only need year 2
+```{r}
+smrip_gvol_qc_uni_y2 <- smrip_gvol_qc_uni_big_norm %>% filter(eventname == "2_year_follow_up_y_arm_1")
+smrip_gvol_qc_uni_base <- smrip_gvol_qc_uni_big_norm %>% filter(eventname == "baseline_year_1_arm_1")
+
+nrow(smrip_gvol_qc_uni_y2) # 5977
+nrow(smrip_gvol_qc_uni_base) # 8581
+
+write.csv(smrip_gvol_qc_uni_big_norm, "/Users/hansoochang/Drexel/ABCD/data/smrip_gmv.csv")
+write.csv(smrip_gvol_qc_uni_y2, "/Users/hansoochang/Drexel/ABCD/data/smrip_gmv_y2.csv")
+write.csv(smrip_gvol_qc_uni_base, "/Users/hansoochang/Drexel/ABCD/data/smrip_gmv_base.csv")
+```
+
+
+
+
+# Get Scanner Info
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

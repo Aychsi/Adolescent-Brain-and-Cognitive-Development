@@ -1,0 +1,272 @@
+---
+title: "BrainAge_KDM_CortThick"
+output: html_document
+date: "2023-03-22"
+---
+
+
+```{r}
+#install.packages("flexsurv")
+#devtools::install_github("dayoonkwon/BioAge")
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+```
+
+
+Since KDM requires chronological age, we need chronological age in our biological markers. Convert age in months to age in years. 
+
+
+# Split into and test set from healthy cohort
+```{r}
+healthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys.csv")
+unhealthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys.csv")
+
+
+healthy_cortthick_cbcl_phys$age <- as.numeric(healthy_cortthick_cbcl_phys$interview_age)/12
+healthy_cortthick_cbcl_phys$gender <- healthy_cortthick_cbcl_phys$sex.x
+
+unhealthy_cortthick_cbcl_phys$age <- as.numeric(unhealthy_cortthick_cbcl_phys$interview_age)/12 
+unhealthy_cortthick_cbcl_phys$gender <- unhealthy_cortthick_cbcl_phys$sex.x
+
+# about 4 participants with no age info
+healthy_cortthick_cbcl_phys <- healthy_cortthick_cbcl_phys[complete.cases(healthy_cortthick_cbcl_phys), ]
+unhealthy_cortthick_cbcl_phys <- unhealthy_cortthick_cbcl_phys[complete.cases(unhealthy_cortthick_cbcl_phys), ]
+
+colnames(healthy_cortthick_cbcl_phys)
+nrow(healthy_cortthick_cbcl_phys) # 2767
+nrow(unhealthy_cortthick_cbcl_phys) # 1104
+```
+
+# Check for anything weird
+```{r}
+skim(unhealthy_cortthick_cbcl_phys)
+skim(healthy_cortthick_cbcl_phys)
+```
+
+
+```{r}
+set.seed(18)
+#bm_healthy <- merge(bm, healthy_cbcl_phys, by = "subjectkey", all = FALSE)
+#nrow(bm_healthy) # 375
+#bm_unhealthy <- merge(bm, unhealthy_cbcl, by = "subjectkey", all = FALSE)
+#nrow(bm_unhealthy) # 283
+
+### Healthy Training ###
+samp <- sample(c(TRUE, FALSE), nrow(healthy_cortthick_cbcl_phys), replace=TRUE, prob=c(0.6,0.4))
+cortthick_train <- healthy_cortthick_cbcl_phys[samp, ]
+cortthick_test <- healthy_cortthick_cbcl_phys[!samp, ]
+
+nrow(cortthick_train) # 1649
+nrow(cortthick_test) # 1118
+
+```
+
+
+# Train
+```{r}
+cortthick_markers <- colnames(cortthick_train %>% select(contains("smri")))
+# kdm_train_male <- kdm_calc(male_train, biomarkers = markers)
+# kdm_train_female <- kdm_calc(female_train, biomarkers = markers)'
+
+kdm_train_cortthick <- kdm_calc(cortthick_train, biomarkers = cortthick_markers)
+```
+
+
+Correlation tests between kdm_age and chronological age
+```{r}
+cor.test(as.numeric(kdm_train_cortthick$data$kdm), as.numeric(kdm_train_cortthick$data$age))
+rmse(as.numeric(kdm_train_cortthick$data$kdm), as.numeric(kdm_train_cortthick$data$age))
+mae(as.numeric(kdm_train_cortthick$data$kdm), as.numeric(kdm_train_cortthick$data$age))
+
+# Female
+# cor.test(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+# rmse(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+# mae(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+
+
+#plot age vs bioage
+#plot_ba(kdm_train$data, "kdm", "KDM\nBiological Age")
+
+```
+
+# Project to test
+```{r}
+# 
+kdm_test_cortthick <- kdm_calc(cortthick_test, biomarkers = cortthick_markers, fit = kdm_train_cortthick$fit, s_ba2 = 
+                       kdm_train_cortthick$fit$s_ba2)
+
+# Female
+# kdm_female <- kdm_calc(female_test, biomarkers = markers, fit = kdm_train_female$fit, s_ba2 = 
+#                        kdm_train_female$fit$s_ba2)
+
+
+# kdm_data <- rbind(kdm_male$data, kdm_female$data)
+kdm_data_cortthick <- kdm_test_cortthick$data
+```
+
+# Correlation tests between kdm_age (both genders) and chronological age
+```{r}
+cor.test(as.numeric(kdm_data_cortthick$kdm), as.numeric(kdm_data_cortthick$age))
+rmse(as.numeric(kdm_data_cortthick$kdm), as.numeric(kdm_data_cortthick$age))
+mae(as.numeric(kdm_data_cortthick$kdm), as.numeric(kdm_data_cortthick$age))
+
+
+#plot age vs bioage
+plot_ba(kdm_data_cortthick, "kdm", "KDM\nBiological Age")
+
+```
+
+# plot kdm_advance
+```{r}
+#plot age vs bioage
+plot_ba(kdm_data_cortthick, "kdm", "KDM\nBiological Age")
+
+plot_ba(kdm_data_cortthick, "kdm_advance", "KDM\nBiological Age")
+
+```
+
+
+# Project trained model onto Unhealthy cohort
+## Get prediction
+```{r}
+# project to unhealthy Group
+# males_unhealthy <- bm_unhealthy[which(bm_unhealthy$gender == "M"),]
+
+kdm_unhealthy_cortthick <- kdm_calc(unhealthy_cortthick_cbcl_phys, biomarkers = cortthick_markers, fit = kdm_train_cortthick$fit, s_ba2 = 
+                       kdm_train_cortthick$fit$s_ba2)
+
+# Females
+#females_unhealthy <- bm_unhealthy[which(bm_unhealthy$gender == "F"),]
+
+#kdm_female_unhealthy <- kdm_calc(females_unhealthy, biomarkers = markers, fit = #kdm_train_female$fit, s_ba2 = 
+#                      kdm_train_female$fit$s_ba2)
+
+
+# merge
+# kdm_data_unhealthy <- rbind(kdm_male_unhealthy$data, kdm_female_unhealthy$data)
+kdm_data_unhealthy_cortthick <- kdm_unhealthy_cortthick$data 
+
+```
+
+
+# Correlation test between KDM age and Chronological Age for Unhealthy cohort
+```{r}
+cor.test(as.numeric(kdm_data_unhealthy_cortthick$kdm), as.numeric(kdm_data_unhealthy_cortthick$age))
+rmse(as.numeric(kdm_data_unhealthy_cortthick$kdm), as.numeric(kdm_data_unhealthy_cortthick$age))
+mae(as.numeric(kdm_data_unhealthy_cortthick$kdm), as.numeric(kdm_data_unhealthy_cortthick$age))
+
+```
+
+```{r}
+plot_ba(kdm_data_unhealthy_cortthick, "kdm", "KDM\nBiological Age")
+plot(x = kdm_data_unhealthy_cortthick$age, y = kdm_data_unhealthy_cortthick$kdm_advance)
+```
+
+# Test for Normality
+```{r}
+# variances are approximately = 1
+
+# KDM Biological Age
+shapiro.test(kdm_data_cortthick$kdm)
+shapiro.test(kdm_data_unhealthy_cortthick$kdm)
+
+ggdensity(kdm_data_cortthick$kdm)
+ggdensity(kdm_data_unhealthy_cortthick$kdm)
+ggdensity(kdm_data_cortthick$age) # For some reason, less 12 year olds in the data
+
+ggqqplot(kdm_data_cortthick$kdm)
+ggqqplot(kdm_data_unhealthy_cortthick$kdm)
+```
+
+
+```{r}
+hist(kdm_data_cortthick$kdm)
+hist(kdm_data_cortthick$kdm_advance)
+
+hist(kdm_data_unhealthy_cortthick$kdm)
+hist(kdm_data_unhealthy_cortthick$kdm_advance)
+```
+
+# Check some outliers
+```{r}
+kdm_data_cortthick %>% filter(abs(kdm_advance) > 10)
+kdm_data_unhealthy_cortthick %>% filter(abs(kdm_advance) > 10)
+
+
+kdm_data_cortthick %>% filter(smri_thick_cdk_mean < 1)
+kdm_data_cortthick %>% filter(kdm > 20)
+
+```
+
+
+
+# Check the relationship between CA and ROIs Visually
+```{r}
+smri_list <- colnames(kdm_data_cortthick %>% select(contains("smri")))
+for (smri in smri_list) {
+  print(ggscatter(kdm_data_cortthick, x = "age", y = smri, 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "age", ylab = smri, color = "gender",
+          palette = c(M = "blue", F = "pink")) +
+    stat_cor(aes(color = gender)) + stat_cor(label.y.npc = 0.8))
+}
+```
+
+# Check the relationship between CA and ROIs as a table
+```{r}
+cor_sub <- kdm_data_cortthick %>% select(contains(c("smri", "age")))
+cor_sub <- cor_sub %>% select(-interview_age)
+
+cor_matrix <- cor(cor_sub)
+correlations <- cor_matrix["age", smri_list]
+
+# Matrix with highest absolute correlations between ROI and age
+sort(abs(correlations), decreasing = T)
+```
+
+
+
+# T-Test
+```{r}
+
+sd(kdm_data_cortthick$kdm)
+sd(kdm_data_unhealthy_cortthick$kdm)
+
+sd(kdm_data_cortthick$kdm_advance)
+sd(kdm_data_unhealthy_cortthick$kdm_advance)
+
+# T-Test for average healthy KDM and unhealthy KDM
+t.test(kdm_data_cortthick$kdm, kdm_data_unhealthy_cortthick$kdm, alternative = "two.sided", var.equal = T)
+
+# T-Test for average healthy KDM_advance and unhealthy KDM_advance
+t.test(kdm_data_cortthick$kdm_advance, kdm_data_unhealthy_cortthick$kdm_advance, alternative = "two.sided", var.equal = T)
+
+# t.test between chronological ages
+t.test(kdm_data_cortthick$age, kdm_data_unhealthy_cortthick$age, alternative = "two.sided", var.equal = TRUE)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

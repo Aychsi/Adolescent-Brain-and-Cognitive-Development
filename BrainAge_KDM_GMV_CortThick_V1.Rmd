@@ -1,0 +1,150 @@
+---
+title: "BrainAge_KDM_GMV_CortThick_V1"
+output: html_document
+date: "2023-03-23"
+---
+
+```{r}
+#install.packages("flexsurv")
+#devtools::install_github("dayoonkwon/BioAge")
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(pcaPP)
+```
+
+
+Since KDM requires chronological age, we need chronological age in our biological markers. Convert age in months to age in years. 
+
+
+# Split into and test set from healthy cohort
+```{r}
+healthy_gmv_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cortthick_cbcl_phys.csv")
+unhealthy_gmv_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cortthick_cbcl_phys.csv")
+
+length(colnames(healthy_gmv_cortthick_cbcl_phys))
+length(colnames(unhealthy_gmv_cortthick_cbcl_phys))
+
+healthy_gmv_cortthick_cbcl_phys$age <- as.numeric(healthy_gmv_cortthick_cbcl_phys$interview_age)/12
+healthy_gmv_cortthick_cbcl_phys$sex <- healthy_gmv_cortthick_cbcl_phys$s.x
+
+unhealthy_gmv_cortthick_cbcl_phys$age <- as.numeric(unhealthy_gmv_cortthick_cbcl_phys$interview_age)/12 
+unhealthy_gmv_cortthick_cbcl_phys$sex <- unhealthy_gmv_cortthick_cbcl_phys$s.x
+
+# about 4 participants with no age info
+healthy_gmv_cortthick_cbcl_phys <- healthy_gmv_cortthick_cbcl_phys[complete.cases(healthy_gmv_cortthick_cbcl_phys), ]
+unhealthy_gmv_cortthick_cbcl_phys <- unhealthy_gmv_cortthick_cbcl_phys[complete.cases(unhealthy_gmv_cortthick_cbcl_phys), ]
+
+nrow(healthy_gmv_cortthick_cbcl_phys) # 2718
+nrow(unhealthy_gmv_cortthick_cbcl_phys) # 1041
+```
+
+# Split
+```{r}
+train <- healthy_split(healthy_gmv_cortthick_cbcl_phys)[[1]]
+test <- healthy_split(healthy_gmv_cortthick_cbcl_phys)[[2]]
+
+nrow(train)
+nrow(test)
+
+```
+
+# Train
+```{r}
+kdm_train_all <- kdm_train(train, "smri") 
+```
+
+# project to test set (healthy)
+```{r}
+kdm_test_all <- kdm_test(test, kdm_train_all, "smri")
+get_val_metrics(kdm_test_all)
+
+```
+
+# Project to unhealthy cohort
+```{r}
+kdm_unhealthy_all <- kdm_test(unhealthy_gmv_cortthick_cbcl_phys, kdm_train_all, "smri")
+
+get_val_metrics(kdm_unhealthy_all)
+```
+
+
+
+# Test for Normality for KDM
+```{r}
+# variances are approximately = 1
+
+# KDM Biological Age
+shapiro.test(kdm_data_brain_gmv_cortthick$kdm)
+shapiro.test(kdm_data_unhealthy_brain_gmv_cortthick$kdm)
+
+ggdensity(kdm_data_brain_gmv_cortthick$kdm)
+ggdensity(kdm_data_unhealthy_brain_gmv_cortthick$kdm)
+ggdensity(kdm_data_brain_gmv_cortthick$age) # For some reason, less 12 year olds in the data
+
+ggqqplot(kdm_data_brain_gmv_cortthick$kdm)
+ggqqplot(kdm_data_unhealthy_brain_gmv_cortthick$kdm)
+```
+
+
+```{r}
+hist(kdm_data_brain_gmv_cortthick$kdm)
+hist(kdm_data_brain_gmv_cortthick$kdm_advance)
+
+hist(kdm_data_unhealthy_brain_gmv_cortthick$kdm)
+hist(kdm_data_unhealthy_brain_gmv_cortthick$kdm_advance)
+```
+
+
+# T-Test
+```{r}
+
+sd(kdm_data_brain_gmv_cortthick$kdm)
+sd(kdm_data_unhealthy_brain_gmv_cortthick$kdm)
+
+sd(kdm_data_brain_gmv_cortthick$kdm_advance)
+sd(kdm_data_unhealthy_brain_gmv_cortthick$kdm_advance)
+
+# T-Test for average healthy KDM and unhealthy KDM
+t.test(kdm_data_brain_gmv_cortthick$kdm, kdm_data_unhealthy_brain_gmv_cortthick$kdm, alternative = "two.sided", var.equal = T)
+
+# T-Test for average healthy KDM_advance and unhealthy KDM_advance
+t.test(kdm_data_brain_gmv_cortthick$kdm_advance, kdm_data_unhealthy_brain_gmv_cortthick$kdm_advance, alternative = "two.sided", var.equal = T)
+
+# t.test between chronological ages
+t.test(kdm_data_brain_gmv_cortthick$age, kdm_data_unhealthy_brain_gmv_cortthick$age, alternative = "two.sided", var.equal = TRUE)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

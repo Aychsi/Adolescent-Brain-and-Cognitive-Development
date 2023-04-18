@@ -1,0 +1,192 @@
+---
+title: "BrainAge_FeatureSelection"
+output: html_document
+date: "2023-03-24"
+---
+
+# Packages
+```{r}
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(pcaPP)
+```
+
+
+# Read in Data
+```{r}
+healthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys.csv")
+healthy_gmv_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_brain_cbcl_phys.csv")
+
+unhealthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys.csv")
+unhealthy_gmv_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_brain_cbcl_phys.csv")
+
+```
+
+
+
+
+# Check the relationship between CA and ROIs as a table
+## IMPORTANT: Kendall's Tau takes too long in regular cor() function. Use cor.fk from pcaPP package
+```{r}
+cor_mat_non_para <- function(df) {
+  
+  df$age <- as.numeric(df$interview_age)/12
+  df <- df[complete.cases(df),]
+  
+  cor_sub <- df %>% dplyr::select(contains(c("smri", "age")))
+  cor_sub <- cor_sub %>% dplyr::select(-interview_age)
+  
+  smri_list <- colnames(df %>% dplyr::select(contains("smri")))
+  cor_matrix <- cor.fk(cor_sub)
+  correlations <- cor_matrix["age", smri_list]
+  
+  # Matrix with highest absolute correlations between ROI and age
+  cor_mat_kendall <- sort(abs(correlations), decreasing = T)
+  
+  # Convert to Pearson's r and Cohen's d for effect size comparison
+  cor_mat_kendall_to_r <- sin(pi*0.5*cor_mat_kendall)
+  cor_mat_kendall_to_d <- 2*cor_mat_kendall_to_r/sqrt(1-cor_mat_kendall_to_r**2)
+  
+  return(cor_mat_kendall_to_r)
+}
+
+```
+https://digitalcommons.wayne.edu/cgi/viewcontent.cgi?article=1719&context=jmasm
+
+Cohen (1988) defined the values of effect sizes
+for this group as small d = .20, medium d = .50,
+and large d = .80.
+
+
+# Run Custom Cor Function for Cortical Thickness and GMV
+## No gender split
+```{r}
+cortthick_cors <- cor_mat_non_para(healthy_cortthick_cbcl_phys)
+gmv_cors <- cor_mat_non_para(healthy_gmv_cbcl_phys)
+
+cortthick_cors
+```
+
+## Gender Split (only gmv for now)
+```{r}
+healthy_gmv_cbcl_phys_m <- healthy_gmv_cbcl_phys %>% filter(sex.x == "M")
+healthy_gmv_cbcl_phys_f <- healthy_gmv_cbcl_phys %>% filter(sex.x == "F")
+
+unhealthy_gmv_cbcl_phys_m <- unhealthy_gmv_cbcl_phys %>% filter(sex.x == "M")
+unhealthy_gmv_cbcl_phys_f <- unhealthy_gmv_cbcl_phys %>% filter(sex.x == "F")
+
+```
+
+
+```{r}
+gmv_cors_m <- cor_mat_non_para(healthy_gmv_cbcl_phys_m)
+gmv_cors_f <- cor_mat_non_para(healthy_gmv_cbcl_phys_f)
+```
+
+
+# Check Median
+## No Split
+```{r}
+as.data.frame(cortthick_cors)
+as.data.frame(gmv_cors)
+
+median(gmv_cors)
+median(cortthick_cors)
+```
+
+## Gender Split
+```{r}
+as.data.frame(gmv_cors_m)
+as.data.frame(gmv_cors_f)
+
+median(gmv_cors_m)
+median(gmv_cors_f)
+```
+
+
+# Subset original df (Get any ROIs with r above .1)
+## No Split
+```{r}
+sub_rois_cortthick <- as.data.frame(cortthick_cors) %>% filter(cortthick_cors < 0.1072957) %>% select(-cortthick_cors)
+
+# Using Median here
+sub_rois_gmv <- as.data.frame(gmv_cors) %>% filter(gmv_cors < 0.03979008) %>% select(-gmv_cors)
+
+sub_rois_cortthick <- tibble::rownames_to_column(sub_rois_cortthick, "a") 
+sub_rois_list_cortthick <- sub_rois_cortthick$a
+
+sub_rois_gmv <- tibble::rownames_to_column(sub_rois_gmv, "a") 
+sub_rois_list_gmv <- sub_rois_gmv$a
+
+healthy_cortthick_cbcl_phys_sub <- healthy_cortthick_cbcl_phys %>% select(-sub_rois_list_cortthick)
+unhealthy_cortthick_cbcl_phys_sub <- unhealthy_cortthick_cbcl_phys %>% select(-sub_rois_list_cortthick)
+
+healthy_gmv_cbcl_phys_sub <- healthy_gmv_cbcl_phys %>% select(-sub_rois_list_gmv)
+unhealthy_gmv_cbcl_phys_sub <- unhealthy_gmv_cbcl_phys %>% select(-sub_rois_list_gmv)
+
+write.csv(healthy_cortthick_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys_sub.csv")
+write.csv(unhealthy_cortthick_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys_sub.csv")
+
+write.csv(healthy_gmv_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cbcl_phys_sub.csv")
+write.csv(unhealthy_gmv_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cbcl_phys_sub.csv")
+```
+
+
+## Gender split
+```{r}
+# Male
+sub_rois_gmv_m <- as.data.frame(gmv_cors_m) %>% filter(gmv_cors_m < median(gmv_cors_m)) %>% select(-gmv_cors_m)
+
+sub_rois_gmv_m <- tibble::rownames_to_column(sub_rois_gmv_m, "a") 
+sub_rois_list_gmv_m <- sub_rois_gmv_m$a
+
+healthy_gmv_cbcl_phys_sub_m <- healthy_gmv_cbcl_phys_m %>% select(-sub_rois_list_gmv_m)
+unhealthy_gmv_cbcl_phys_sub_m <- unhealthy_gmv_cbcl_phys_m %>% select(-sub_rois_list_gmv_m)
+
+write.csv(healthy_gmv_cbcl_phys_sub_m, "/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cbcl_phys_sub_m.csv")
+write.csv(unhealthy_gmv_cbcl_phys_sub_m, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cbcl_phys_sub_m.csv")
+
+# Female
+sub_rois_gmv_f <- as.data.frame(gmv_cors_f) %>% filter(gmv_cors_f < median(gmv_cors_f)) %>% select(-gmv_cors_f)
+
+sub_rois_gmv_f <- tibble::rownames_to_column(sub_rois_gmv_f, "a") 
+sub_rois_list_gmv_f <- sub_rois_gmv_f$a
+
+healthy_gmv_cbcl_phys_sub_f <- healthy_gmv_cbcl_phys_f %>% select(-sub_rois_list_gmv_f)
+unhealthy_gmv_cbcl_phys_sub_f <- unhealthy_gmv_cbcl_phys_f %>% select(-sub_rois_list_gmv_f)
+
+
+write.csv(healthy_gmv_cbcl_phys_sub_f, "/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cbcl_phys_sub_f.csv")
+write.csv(unhealthy_gmv_cbcl_phys_sub_f, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cbcl_phys_sub_f.csv")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

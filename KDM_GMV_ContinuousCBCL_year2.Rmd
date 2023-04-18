@@ -1,0 +1,242 @@
+---
+title: "KDM_GMV_ContinuousCBCL_year2"
+output: html_document
+date: "2023-04-07"
+---
+
+# Libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+```
+
+
+# Read in data
+```{r}
+# Read in data
+cbcl <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_cbcls01.txt", sep="", fill = TRUE)
+
+table(cbcl$eventname)
+```
+
+# Select only Total Scores and by Collection Year
+```{r}
+cbcl_t <- cbcl %>% select(contains(c("_t", "subjectkey", "eventname", "interview_age")))
+cbcl_t <- cbcl_t[-1, ]
+
+# remove some unnecessary columns
+cbcl_t <- subset(cbcl_t, select = -c(`cbcl_scr_syn_thought_m`, `cbcl_scr_syn_thought_nm`
+                                       , `cbcl_scr_syn_thought_r`,`cbcl_scr_syn_totprob_m`,
+                                       `cbcl_scr_syn_totprob_nm`, `cbcl_scr_syn_totprob_r`))
+
+cbcl_t[, 1:20] <- as.numeric(unlist(cbcl_t[, 1:20]))
+
+cbcl_t_baseline <- cbcl_t[cbcl_t$eventname == "baseline_year_1_arm_1", ]
+cbcl_t_1year <- cbcl_t[cbcl_t$eventname == "1_year_follow_up_y_arm_1", ]
+cbcl_t_2year <- cbcl_t[cbcl_t$eventname == "2_year_follow_up_y_arm_1", ]
+cbcl_t_3year <- cbcl_t[cbcl_t$eventname == "3_year_follow_up_y_arm_1", ]
+
+```
+
+
+# Add family id
+```{r}
+FamilyId <- read.csv("/Users/hansoochang/Drexel/ABCD/data/acspsw03.csv")
+FamilyId <- FamilyId[-1,]
+FamilyId[FamilyId == ""] <- NA
+
+FamilyId_rel_family <- FamilyId %>% select(subjectkey, eventname, rel_family_id)
+
+FamilyId_rel_family <- FamilyId_rel_family[complete.cases(FamilyId_rel_family), ]
+
+cbcl_t_baseline <- merge(cbcl_t_baseline, FamilyId_rel_family, by = c("subjectkey"))
+cbcl_t_1year <- merge(cbcl_t_1year, FamilyId_rel_family, by = c("subjectkey"))
+cbcl_t_2year <- merge(cbcl_t_2year, FamilyId_rel_family, by = c("subjectkey"))
+cbcl_t_3year <- merge(cbcl_t_3year, FamilyId_rel_family, by = c("subjectkey"))
+
+
+```
+
+
+# Complete Cases
+```{r}
+cbcl_t_baseline <- cbcl_t_baseline[complete.cases(cbcl_t_baseline), ]
+cbcl_t_1year <- cbcl_t_1year[complete.cases(cbcl_t_1year), ]
+cbcl_t_2year <- cbcl_t_2year[complete.cases(cbcl_t_2year), ]
+cbcl_t_3year <- cbcl_t_3year[complete.cases(cbcl_t_3year), ]
+
+
+skim(cbcl_t_2year)
+
+```
+
+
+# Add column with overall total score
+```{r}
+colnames(cbcl_t_2year)
+cbcl_2year_sum <- cbcl_t_2year %>% 
+  rowwise() %>% 
+  mutate(sumindex = sum(c_across(c(2:21)), na.rm = T))
+
+cbcl_3year_sum <- cbcl_t_3year %>% 
+  rowwise() %>% 
+  mutate(sumindex = sum(c_across(c(2:21)), na.rm = T))
+
+
+```
+
+
+
+# Merge with GMV Subset group
+## The bm file has binomial cbcl scores, we need to change it back here
+```{r}
+gmv <- read.csv("/Users/hansoochang/Drexel/ABCD/data/gmv_year2_cs.csv")
+gmv_merge <- gmv %>% select(-c("cbcl_scr_syn_anxdep_t":"count"))
+
+colnames(gmv)
+colnames(cbcl_2year_sum)
+
+cbcl_2year_sum$eventname <- cbcl_2year_sum$eventname.x
+cbcl_2year_sum <- select(-c(eventname.x, eventname.y))
+
+gmv_cbcl_2year_sum <- merge(gmv_merge, cbcl_2year_sum, by = c("subjectkey", "eventname"))
+ 
+gmv_cbcl_3year_sum <- merge(gmv_merge, cbcl_3year_sum, by = c("subjectkey"))
+
+gmv_cbcl_3year_sum$eventname <- gmv_cbcl_3year_sum$eventname.x
+
+gmv_cbcl_3year_sum <- gmv_cbcl_3year_sum %>% select(-c(X.3, X.2, X, X.1, X.x, sex.x, X.y))
+
+write.csv(gmv_cbcl_2year_sum, "/Users/hansoochang/Drexel/ABCD/data/gmv_cbcl_2year_sum")
+write.csv(gmv_cbcl_3year_sum, "/Users/hansoochang/Drexel/ABCD/data/gmv_cbcl_3year_sum")
+
+nrow(gmv_cbcl_2year_sum) # 2117
+nrow(gmv_cbcl_3year_sum) # 1838
+```
+
+
+# Check Distribution
+```{r}
+ggdensity(gmv_cbcl_2year_sum$sumindex)
+ggdensity(gmv_cbcl_3year_sum$sumindex)
+
+ggdensity(gmv_cbcl_2year_sum$cbcl_scr_syn_totprob_t)
+ggdensity(gmv_cbcl_3year_sum$cbcl_scr_syn_totprob_t)
+```
+
+
+### 2 year to 2 year ###
+# Plot GMV KDM BA and CBCL scores 
+```{r}
+colnames(gmv_cbcl_2year_sum)
+
+## Find significant correlations first
+cbcl_list <- colnames(gmv_cbcl_2year_sum %>% 
+                        select(c("cbcl_scr_syn_anxdep_t" : "cbcl_scr_07_stress_t", "sumindex")))
+
+for (cbcl in cbcl_list) {
+  print(ggscatter(gmv_cbcl_2year_sum, x = "kdm", y = cbcl, 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "kdm", ylab = cbcl, color = "gender",
+          palette = c(M = "blue", F = "pink")) +
+    stat_cor(aes(color = gender)) + stat_cor(label.y.npc = 0.8))
+}
+
+
+```
+
+### 2 year to 2 year ###
+# Plot GMV KDM BA Advance and CBCL scores 
+```{r}
+colnames(gmv_cbcl_2year_sum)
+
+## Find significant correlations first
+cbcl_list <- colnames(gmv_cbcl_2year_sum %>% 
+                        select(c("cbcl_scr_syn_anxdep_t" : "cbcl_scr_07_stress_t", "sumindex")))
+
+for (cbcl in cbcl_list) {
+  print(ggscatter(gmv_cbcl_2year_sum, x = "kdm_advance", y = cbcl, 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "kdm advance", ylab = cbcl, color = "gender",
+          palette = c(M = "blue", F = "pink")) +
+    stat_cor(aes(color = gender)) + stat_cor(label.y.npc = 0.8))
+}
+
+
+```
+
+
+### 2 year to 3 year ###
+# Plot GMV KDM BA Advance and CBCL scores 
+```{r}
+colnames(gmv_cbcl_3year_sum)
+
+## Find significant correlations first
+cbcl_list <- colnames(gmv_cbcl_3year_sum %>% 
+                        select(c("cbcl_scr_syn_anxdep_t" : "cbcl_scr_07_stress_t", "sumindex")))
+
+for (cbcl in cbcl_list) {
+  print(ggscatter(gmv_cbcl_3year_sum, x = "kdm_advance", y = cbcl, 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "kdm advance", ylab = cbcl, color = "gender",
+          palette = c(M = "blue", F = "pink")) +
+    stat_cor(aes(color = gender)) + stat_cor(label.y.npc = 0.8))
+}
+
+
+```
+
+# Calculate Differences in Sex via Regression
+		○ Y is cbcl score
+		○ X ba gap + gender + interaction of gender and kdm_advance
+			§ Interaction shows whether gender moderates kdm_advance
+		○ Add multilevel model for site and family
+```{r}
+gmv_cbcl_2year_sum$sex_dummy <- as.factor(ifelse(gmv_cbcl_2year_sum$gender == "M", 1, 0))
+colnames(gmv_cbcl_2year_sum)
+
+sex_lmer <- lmer(data = gmv_cbcl_2year_sum, cbcl_scr_syn_external_t ~ kdm_advance*sex_dummy + 
+      (1 + kdm_advance + sex_dummy| site_id_l) + (1 | rel_family_id:), REML = F)
+
+summary(sex_lmer)
+
+```
+
+# Iterate through Tests
+```{r}
+summary(sex_lmer)$coefficients[,c("Estimate", "Pr(>|t|)")]
+summary(sex_lmer)$coefficients
+
+fits <- list()
+for (cbcl in cbcl_list) { 
+  sex_lmer <- lmer(data = gmv_cbcl_2year_sum, paste(cbcl, "~ kdm_advance*sex_dummy + 
+      (1 + kdm_advance + sex_dummy| site_id_l) + (1 | rel_family_id)"), REML = F)
+  # print(summary(sex_lmer)$coefficients)
+  fits <- rbind(fits, cbcl, summary(sex_lmer)$coefficients[,c("Estimate", "Pr(>|t|)")])
+}
+fits
+
+```
+
+
+
+#cpglmm
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

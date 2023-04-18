@@ -1,0 +1,234 @@
+---
+title: "SES"
+output: html_document
+date: "2023-02-28"
+---
+
+```{r}
+library(skimr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+# detach(package:MASS,unload=TRUE)
+```
+
+
+
+
+```{r}
+rhds <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_rhds01.txt")
+rhds <- rhds[-1, ]
+dim(rhds)
+
+# skim(rhds)
+```
+
+# merge with available BMs
+## since file so large, let's cut it down first  
+```{r}
+bm <- read.csv("/Users/hansoochang/Drexel/ABCD/data/year2_cs.csv")
+
+rhds_ses <- rhds %>% select(contains(c("subjectkey", "eventname","adi", "svi_tot", "opat", "reshist_addr1_coi_z")))
+
+bm$eventname_bm <- bm$eventname.y.x
+rhds_ses$eventname_rhds <- rhds_ses$eventname
+
+merge1 <- merge(bm, rhds_ses, by = (c("subjectkey")))
+merge1[merge1 == ""] <- NA
+
+
+# skim(merge1)
+
+```
+
+# Cut out columns witih many missing datapoints and get true summary scores
+```{r}
+merge2 <- merge1 %>% select(c(subjectkey, sex.x, eventname_rhds, eventname_bm, kdm_advance,
+                              reshist_addr1_adi_wsum:reshist_addr1_adi_perc, 
+                              reshist_addr2_adi_wsum:reshist_addr2_adi_perc,
+                              reshist_addr3_adi_wsum:reshist_addr3_adi_perc,
+                              reshist_addr4_adi_wsum,
+                              reshist_addr1_coi_z_coi_nat,
+                              reshist_addr1_coi_z_ed_nat:reshist_addr1_coi_z_se_nat,
+                              reshist_addr1_svi_tot_20142018:reshist_addr3_svi_tot_20142018,
+                              reshist_addr1_opat_kfrpp_avg:reshist_addr1_opat_kfrpp_n, 
+                              reshist_addr1_opat_kfrppavg_se,
+                              reshist_addr2_opat_kfrpp_avg:reshist_addr2_opat_kfrpp_n,
+                              reshist_addr3_opat_kfrpp_avg:reshist_addr3_opat_kfrpp_n))
+  
+  
+```
+
+
+```{r}
+skim(merge2)
+
+merge2_2year <- merge2 %>% filter(eventname_rhds == "2_year_follow_up_y_arm_1")
+
+merge2_2year %>% filter(!is.na(reshist_addr2_adi_wsum))
+```
+
+# Averaging some Columns
+## the adi tests have multiple measures. Average these. There are only about 20 of these cases.
+```{r}
+merge2_2year <- merge2_2year %>% 
+  mutate_at(vars(reshist_addr1_adi_wsum:reshist_addr3_opat_kfrpp_n), as.numeric)
+
+# wsum
+merge2_2year$reshist_addr1_adi_wsum_mean <- 
+  rowMeans(select(merge2_2year, contains("_wsum")), na.rm = T)
+
+# perc
+merge2_2year$reshist_addr1_adi_perc_mean <- 
+  rowMeans(select(merge2_2year, contains("_perc")), na.rm = T)
+
+# reshist_addr1_svi_tot_20142018
+merge2_2year$reshist_addr1_svi_tot_20142018_mean <- 
+  rowMeans(select(merge2_2year, contains("svi_tot_")), na.rm = T)
+
+# reshist_addr1_opat_kfrpp_avg
+merge2_2year$reshist_addr1_opat_kfrpp_avg_mean <- 
+  rowMeans(select(merge2_2year, contains("kfrpp_avg")), na.rm = T)
+
+# merge2_2year
+
+```
+
+# Select variables of interest after averaging
+```{r}
+merge3_2year <- merge2_2year %>% select(c(subjectkey:eventname_bm, kdm_advance,
+                          reshist_addr1_coi_z_coi_nat:reshist_addr1_coi_z_se_nat,
+                          reshist_addr1_adi_wsum_mean,
+                          reshist_addr1_svi_tot_20142018_mean:reshist_addr1_opat_kfrpp_avg_mean))
+
+
+skim(merge3_2year)
+merge3_2year_comp <- merge3_2year[complete.cases(merge3_2year), ]
+```
+
+
+```{r}
+# merge3_2year_comp
+
+ggdensity(merge3_2year_comp$reshist_addr1_coi_z_coi_nat)
+ggdensity(merge3_2year_comp$reshist_addr1_coi_z_ed_nat)
+ggdensity(merge3_2year_comp$reshist_addr1_coi_z_he_nat)
+ggdensity(merge3_2year_comp$reshist_addr1_coi_z_se_nat)
+ggdensity(merge3_2year_comp$reshist_addr1_adi_wsum_mean)
+ggdensity(merge3_2year_comp$reshist_addr1_svi_tot_20142018_mean)
+ggdensity(merge3_2year_comp$reshist_addr1_opat_kfrpp_avg_mean)
+
+
+```
+
+
+
+```{r}
+## Find significant correlations first
+ses_list <- colnames(merge3_2year_comp %>% 
+                        select(c("reshist_addr1_coi_z_coi_nat" : "reshist_addr1_opat_kfrpp_avg_mean")))
+
+for (ses in ses_list) {
+  print(ggscatter(merge3_2year_comp, x = "kdm_advance", y = ses, 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "kdm_advance", ylab = ses, color = "sex.x",
+          palette = c(M = "blue", F = "pink")) +
+    stat_cor(aes(color = sex.x)) + stat_cor(label.y.npc = 0.8))
+}
+```
+
+
+# Does SES predict KDM?
+Kdm ~ sex*ses(baseline)
+
+## Get baseline
+```{r}
+# merge2
+
+merge2_base <- merge2 %>% filter(eventname_rhds == "baseline_year_1_arm_1")
+
+```
+
+
+
+```{r}
+merge2_base <- merge2_base %>% 
+  mutate_at(vars(reshist_addr1_adi_wsum:reshist_addr3_opat_kfrpp_n), as.numeric)
+
+# wsum
+merge2_base$reshist_addr1_adi_wsum_mean <- 
+  rowMeans(select(merge2_base, contains("_wsum")), na.rm = T)
+
+# perc
+merge2_base$reshist_addr1_adi_perc_mean <- 
+  rowMeans(select(merge2_base, contains("_perc")), na.rm = T)
+
+# reshist_addr1_svi_tot_20142018
+merge2_base$reshist_addr1_svi_tot_20142018_mean <- 
+  rowMeans(select(merge2_base, contains("svi_tot_")), na.rm = T)
+
+# reshist_addr1_opat_kfrpp_avg
+merge2_base$reshist_addr1_opat_kfrpp_avg_mean <- 
+  rowMeans(select(merge2_base, contains("kfrpp_avg")), na.rm = T)
+
+# merge2_base
+```
+
+
+```{r}
+merge3_base <- merge2_2year %>% select(c(subjectkey:eventname_bm, kdm_advance,
+                          reshist_addr1_coi_z_coi_nat:reshist_addr1_coi_z_se_nat,
+                          reshist_addr1_adi_wsum_mean,
+                          reshist_addr1_svi_tot_20142018_mean:reshist_addr1_opat_kfrpp_avg_mean))
+
+
+skim(merge3_base)
+merge3_base_comp <- merge3_base[complete.cases(merge3_base), ]
+```
+
+
+Kdm (2year) ~ sex*ses(baseline)
+I have to iterate through these
+```{r}
+merge3_base_list <- colnames(merge3_base_comp %>% 
+                              select(c("reshist_addr1_coi_z_coi_nat" : 
+                                         "reshist_addr1_opat_kfrpp_avg_mean")))
+
+fits <- list()
+for (i in 1:length(merge3_base_list)) { 
+  print(i)
+  mod <- lm(data = merge3_base_comp, 
+            formula = paste("kdm_advance ~",  merge3_base_list[i],  
+                            "*sex.x" ))
+  fits <- rbind(fits, merge3_base_list[i], summary(mod)$coefficients[,c("Estimate", "Pr(>|t|)")])
+}
+fits
+
+
+```
+
+
+# Graph SES baseline and KDM_advance 2 year
+```{r}
+## Find significant correlations first
+ses_list <- colnames(merge3_base_comp %>% 
+                        select(c("reshist_addr1_coi_z_coi_nat" : "reshist_addr1_opat_kfrpp_avg_mean")))
+
+for (ses in ses_list) {
+  print(ggscatter(merge3_base_comp, x = "kdm_advance", y = ses, 
+          add = "reg.line", conf.int = TRUE, 
+          xlab = "kdm_advance", ylab = ses, color = "sex.x",
+          palette = c(M = "blue", F = "pink")) +
+    stat_cor(aes(color = sex.x)) + stat_cor(label.y.npc = 0.8))
+}
+```
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,106 @@
+---
+title: "BrainAge_MergeGMVCortThick"
+output: html_document
+date: "2023-03-23"
+---
+
+Maximal parameters
+
+# Read in data
+## Maximal (All ROIs)
+```{r}
+# GMV
+healthy_brain_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_brain_cbcl_phys.csv")
+unhealthy_brain_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_brain_cbcl_phys.csv")
+
+# Cortical Thickness
+healthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys.csv")
+unhealthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys.csv")
+
+```
+
+
+## Subset ROIs (correlation above 0.1)
+```{r}
+# GMV
+healthy_gmv_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cbcl_phys_sub.csv")
+unhealthy_gmv_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cbcl_phys_sub.csv")
+
+# Cortical Thickness
+healthy_cortthick_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys_sub.csv")
+unhealthy_cortthick_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys_sub.csv")
+```
+
+
+
+# Merge and Clean
+## All ROIs
+```{r}
+healthy_gmv_cortthick_cbcl_phys <- merge(healthy_brain_cbcl_phys, healthy_cortthick_cbcl_phys, by = c("paired"))
+unhealthy_gmv_cortthick_cbcl_phys <- merge(unhealthy_brain_cbcl_phys, unhealthy_cortthick_cbcl_phys, by = c("paired"))
+
+# Do some cleaning
+healthy_gmv_cortthick_cbcl_phys <- healthy_gmv_cortthick_cbcl_phys %>% select(-contains(".y"))
+unhealthy_gmv_cortthick_cbcl_phys <- unhealthy_gmv_cortthick_cbcl_phys %>% select(-contains(".y"))
+
+for (col in 1:ncol(healthy_gmv_cortthick_cbcl_phys)) {
+    colnames(healthy_gmv_cortthick_cbcl_phys)[col] <- 
+      sub(".x", "", colnames(healthy_gmv_cortthick_cbcl_phys)[col])
+}
+
+for (col in 1:ncol(unhealthy_gmv_cortthick_cbcl_phys)) {
+    colnames(unhealthy_gmv_cortthick_cbcl_phys)[col] <- 
+      sub(".x", "", colnames(unhealthy_gmv_cortthick_cbcl_phys)[col])
+}
+
+
+length(colnames(healthy_gmv_cortthick_cbcl_phys))
+length(colnames(unhealthy_gmv_cortthick_cbcl_phys))
+```
+
+
+## Subset
+```{r}
+healthy_gmv_cortthick_cbcl_phys_sub <- merge(healthy_gmv_cbcl_phys_sub, healthy_cortthick_cbcl_phys_sub, by = c("paired"))
+unhealthy_gmv_cortthick_cbcl_phys_sub <- merge(unhealthy_gmv_cbcl_phys_sub, unhealthy_cortthick_cbcl_phys_sub, by = c("paired"))
+
+# Do some cleaning
+healthy_gmv_cortthick_cbcl_phys_sub <- healthy_gmv_cortthick_cbcl_phys_sub %>% select(-contains(".y"))
+unhealthy_gmv_cortthick_cbcl_phys_sub <- unhealthy_gmv_cortthick_cbcl_phys_sub %>% select(-contains(".y"))
+
+for (col in 1:ncol(healthy_gmv_cortthick_cbcl_phys_sub)) {
+    colnames(healthy_gmv_cortthick_cbcl_phys_sub)[col] <- 
+      sub(".x", "", colnames(healthy_gmv_cortthick_cbcl_phys_sub)[col])
+}
+
+for (col in 1:ncol(unhealthy_gmv_cortthick_cbcl_phys_sub)) {
+    colnames(unhealthy_gmv_cortthick_cbcl_phys_sub)[col] <- 
+      sub(".x", "", colnames(unhealthy_gmv_cortthick_cbcl_phys_sub)[col])
+}
+
+
+length(colnames(healthy_gmv_cortthick_cbcl_phys_sub))
+length(colnames(unhealthy_gmv_cortthick_cbcl_phys_sub))
+```
+
+
+
+# Export
+## All ROIs
+```{r}
+write.csv(healthy_gmv_cortthick_cbcl_phys, "/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cortthick_cbcl_phys.csv")
+write.csv(unhealthy_gmv_cortthick_cbcl_phys, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cortthick_cbcl_phys.csv")
+
+
+```
+
+## Subset
+```{r}
+write.csv(healthy_gmv_cortthick_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cortthick_cbcl_phys_sub.csv")
+write.csv(unhealthy_gmv_cortthick_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cortthick_cbcl_phys_sub.csv")
+
+
+```
+
+
+

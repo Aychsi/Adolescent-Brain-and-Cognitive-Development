@@ -1,0 +1,85 @@
+---
+title: "BrainAge_KDM_V4"
+output: html_document
+date: "2023-04-11"
+---
+
+# Install Packages
+```{r}
+#install.packages("flexsurv")
+#devtools::install_github("dayoonkwon/BioAge")
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(pcaPP)
+```
+
+# Read in data
+```{r}
+# Males
+healthy_brain_cbcl_phys_sub_m <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cbcl_phys_sub_m.csv")
+unhealthy_brain_cbcl_phys_sub_m <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cbcl_phys_sub_m.csv")
+
+# Females
+healthy_brain_cbcl_phys_sub_f <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cbcl_phys_sub_f.csv")
+unhealthy_brain_cbcl_phys_sub_f <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cbcl_phys_sub_f.csv")
+```
+
+
+
+# Split into and test set from healthy cohort
+```{r}
+# Males
+healthy_split_m <- healthy_split(healthy_brain_cbcl_phys_sub_m)
+nrow(healthy_split_m$train) # 815
+nrow(healthy_split_m$test) # 568
+
+# Females
+healthy_split_f <- healthy_split(healthy_brain_cbcl_phys_sub_f)
+nrow(healthy_split_f$train) # 735
+nrow(healthy_split_f$test) # 518
+```
+
+# Train
+```{r}
+# Males
+kdm_train_m <- kdm_train(healthy_split_m$train, "smri")
+
+# Females
+kdm_train_f <- kdm_train(healthy_split_f$train, "smri")
+
+```
+
+
+
+# Test
+```{r}
+# Males
+kdm_test_m <- kdm_test(healthy_split_m$test, kdm_train_m, "smri")
+
+# Females
+kdm_test_f <- kdm_test(healthy_split_f$test, kdm_train_f, "smri")
+
+```
+
+
+# Validate
+```{r}
+# Males
+get_val_metrics(kdm_test_m)
+
+# Females
+get_val_metrics(kdm_test_f)
+
+hist(kdm_test_m$kdm_advance)
+hist(kdm_test_f$kdm_advance)
+```
+
+
+
+
+

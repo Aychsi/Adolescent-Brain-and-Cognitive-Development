@@ -1,0 +1,238 @@
+---
+title: "BrainAge_KDM_V2"
+output: html_document
+date: "2023-03-15"
+---
+
+
+```{r}
+#install.packages("flexsurv")
+#devtools::install_github("dayoonkwon/BioAge")
+#minstall.packages("pcaPP")
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(pcaPP)
+```
+
+
+Since KDM requires chronological age, we need chronological age in our biological markers. Convert age in months to age in years. 
+
+
+# Split into and test set from healthy cohort
+```{r}
+healthy_brain_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_brain_cbcl_phys.csv")
+unhealthy_brain_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_brain_cbcl_phys.csv")
+
+colnames(healthy_brain_cbcl_phys)
+
+healthy_brain_cbcl_phys$age <- as.numeric(healthy_brain_cbcl_phys$interview_age)/12
+healthy_brain_cbcl_phys$gender <- healthy_brain_cbcl_phys$sex.x
+
+unhealthy_brain_cbcl_phys$age <- as.numeric(unhealthy_brain_cbcl_phys$interview_age)/12 
+unhealthy_brain_cbcl_phys$gender <- unhealthy_brain_cbcl_phys$sex.x
+
+# about 4 participants with no age info
+healthy_brain_cbcl_phys <- healthy_brain_cbcl_phys[complete.cases(healthy_brain_cbcl_phys), ]
+unhealthy_brain_cbcl_phys <- unhealthy_brain_cbcl_phys[complete.cases(unhealthy_brain_cbcl_phys), ]
+
+nrow(healthy_brain_cbcl_phys) # 2636
+nrow(unhealthy_brain_cbcl_phys) # 1059
+```
+
+# Check for anything weird
+```{r}
+skim(unhealthy_brain_cbcl_phys)
+skim(healthy_brain_cbcl_phys)
+```
+
+
+```{r}
+
+set.seed(18)
+#bm_healthy <- merge(bm, healthy_cbcl_phys, by = "subjectkey", all = FALSE)
+#nrow(bm_healthy) # 375
+#bm_unhealthy <- merge(bm, unhealthy_cbcl, by = "subjectkey", all = FALSE)
+#nrow(bm_unhealthy) # 283
+
+### Healthy Training ###
+samp <- sample(c(TRUE, FALSE), nrow(healthy_brain_cbcl_phys), replace=TRUE, prob=c(0.6,0.4))
+brain_train <- healthy_brain_cbcl_phys[samp, ]
+brain_test <- healthy_brain_cbcl_phys[!samp, ]
+
+nrow(brain_train) # 1578
+nrow(brain_test) # 1058
+
+```
+
+
+# Train
+```{r}
+brain_markers <- colnames(brain_train %>% dplyr::select(contains("smri")))
+# kdm_train_male <- kdm_calc(male_train, biomarkers = markers)
+# kdm_train_female <- kdm_calc(female_train, biomarkers = markers)'
+
+kdm_train_brain <- kdm_calc(brain_train, biomarkers = brain_markers)
+```
+
+
+Correlation tests between kdm_age and chronological age
+```{r}
+cor.test(as.numeric(kdm_train_brain$data$kdm), as.numeric(kdm_train_brain$data$age))
+rmse(as.numeric(kdm_train_brain$data$kdm), as.numeric(kdm_train_brain$data$age))
+mae(as.numeric(kdm_train_brain$data$kdm), as.numeric(kdm_train_brain$data$age))
+
+# Female
+# cor.test(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+# rmse(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+# mae(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+
+
+#plot age vs bioage
+#plot_ba(kdm_train$data, "kdm", "KDM\nBiological Age")
+
+```
+
+# Project to test
+```{r}
+# 
+kdm_test_brain <- kdm_calc(brain_test, biomarkers = brain_markers, fit = kdm_train_brain$fit, s_ba2 = 
+                       kdm_train_brain$fit$s_ba2)
+
+# Female
+# kdm_female <- kdm_calc(female_test, biomarkers = markers, fit = kdm_train_female$fit, s_ba2 = 
+#                        kdm_train_female$fit$s_ba2)
+
+
+# kdm_data <- rbind(kdm_male$data, kdm_female$data)
+kdm_data_brain <- kdm_test_brain$data
+```
+
+# Correlation tests between kdm_age (both genders) and chronological age
+```{r}
+cor.test(as.numeric(kdm_data_brain$kdm), as.numeric(kdm_data_brain$age))
+rmse(as.numeric(kdm_data_brain$kdm), as.numeric(kdm_data_brain$age))
+mae(as.numeric(kdm_data_brain$kdm), as.numeric(kdm_data_brain$age))
+
+
+#plot age vs bioage
+plot_ba(kdm_data_brain, "kdm", "KDM\nBiological Age")
+
+```
+
+# plot kdm_advance
+```{r}
+#plot age vs bioage
+plot_ba(kdm_data_brain, "kdm", "KDM\nBiological Age")
+
+plot_ba(kdm_data_brain, "kdm_advance", "KDM\nBiological Age")
+
+```
+
+
+# Project trained model onto Unhealthy cohort
+## Get prediction
+```{r}
+# project to unhealthy Group
+# males_unhealthy <- bm_unhealthy[which(bm_unhealthy$gender == "M"),]
+
+kdm_unhealthy_brain <- kdm_calc(unhealthy_brain_cbcl_phys, biomarkers = brain_markers, fit = kdm_train_brain$fit, s_ba2 = 
+                       kdm_train_brain$fit$s_ba2)
+
+# Females
+#females_unhealthy <- bm_unhealthy[which(bm_unhealthy$gender == "F"),]
+
+#kdm_female_unhealthy <- kdm_calc(females_unhealthy, biomarkers = markers, fit = #kdm_train_female$fit, s_ba2 = 
+#                      kdm_train_female$fit$s_ba2)
+
+
+# merge
+# kdm_data_unhealthy <- rbind(kdm_male_unhealthy$data, kdm_female_unhealthy$data)
+kdm_data_unhealthy_brain <- kdm_unhealthy_brain$data 
+
+```
+
+
+# Correlation test between KDM age and Chronological Age for Unhealthy cohort
+```{r}
+cor.test(as.numeric(kdm_data_unhealthy_brain$kdm), as.numeric(kdm_data_unhealthy_brain$age))
+rmse(as.numeric(kdm_data_unhealthy_brain$kdm), as.numeric(kdm_data_unhealthy_brain$age))
+mae(as.numeric(kdm_data_unhealthy_brain$kdm), as.numeric(kdm_data_unhealthy_brain$age))
+
+```
+
+```{r}
+plot_ba(kdm_data_unhealthy_brain, "kdm", "KDM\nBiological Age")
+plot(x = kdm_data_unhealthy_brain$age, y = kdm_data_unhealthy_brain$kdm_advance)
+```
+
+# Test for Normality for KDM
+```{r}
+# variances are approximately = 1
+
+# KDM Biological Age
+shapiro.test(kdm_data_brain$kdm)
+shapiro.test(kdm_data_unhealthy_brain$kdm)
+
+ggdensity(kdm_data_brain$kdm)
+ggdensity(kdm_data_unhealthy_brain$kdm)
+ggdensity(kdm_data_brain$age) # For some reason, less 12 year olds in the data
+
+ggqqplot(kdm_data_brain$kdm)
+ggqqplot(kdm_data_unhealthy_brain$kdm)
+```
+
+
+```{r}
+hist(kdm_data_brain$kdm)
+hist(kdm_data_brain$kdm_advance)
+
+hist(kdm_data_unhealthy_brain$kdm)
+hist(kdm_data_unhealthy_brain$kdm_advance)
+```
+
+
+
+
+# T-Test
+```{r}
+
+sd(kdm_data_brain$kdm)
+sd(kdm_data_unhealthy_brain$kdm)
+
+sd(kdm_data_brain$kdm_advance)
+sd(kdm_data_unhealthy_brain$kdm_advance)
+
+# T-Test for average healthy KDM and unhealthy KDM
+t.test(kdm_data_brain$kdm, kdm_data_unhealthy_brain$kdm, alternative = "two.sided", var.equal = T)
+
+# T-Test for average healthy KDM_advance and unhealthy KDM_advance
+t.test(kdm_data_brain$kdm_advance, kdm_data_unhealthy_brain$kdm_advance, alternative = "two.sided", var.equal = T)
+
+# t.test between chronological ages
+t.test(kdm_data_brain$age, kdm_data_unhealthy_brain$age, alternative = "two.sided", var.equal = TRUE)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

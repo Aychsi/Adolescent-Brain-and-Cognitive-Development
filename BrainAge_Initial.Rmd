@@ -1,0 +1,189 @@
+---
+title: "BrainAge_Initial"
+output: pdf_document
+date: "2023-03-03"
+---
+
+# Libraries
+```{r}
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+```
+
+
+
+
+# Read in data and get only necessary columns
+```{r}
+mrisdp <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_mrisdp10201.txt")
+
+# Select only cortical volume measures
+dest_vol <- mrisdp %>% select(c("subjectkey", "sex", "eventname", "interview_age",
+                                "mrisdp_454":"mrisdp_604"))
+dest_vol[dest_vol == ""] <- NA
+dest_vol <- dest_vol[-1,]
+dest_vol <- dest_vol[complete.cases(dest_vol), ]
+
+skim(dest_vol)
+head(dest_vol)
+```
+Very good complete rate!
+
+# Quality Control for sMRI
+Exclusion is recommended if any of the five categories are rated as severe (a value of 3).
+https://www.sciencedirect.com/science/article/pii/S1053811919306822
+
+```{r}
+qc <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_t2wqc01.txt")
+qc[qc == ""] <- NA
+qc <- qc[-1,]
+
+table(qc$t2w_postqc_revdisp)
+qc
+
+skim(qc)
+```
+
+Find and Remove any instances with qc score of 3
+```{r}
+colnames(qc)
+
+qc_sel <- qc %>% select(c("subjectkey", "abcd_t2wqc01_id", "eventname", 
+                "t2w_postqc_containertype":"t2w_postqc_notes"))
+qc_sel_meas <- qc_sel %>% select(t2w_postqc_containertype:t2w_postqc_notes)
+
+qc_sel_3 <- qc_sel[apply(qc_sel_meas > 2, 1, any, na.rm = TRUE), ]
+
+# df with any measure at 3 (severe quality issue)
+qc_sel_3
+
+
+```
+
+# Merge dataframes and find any rows with 3 in any qc score
+```{r}
+brain_qc_merged <- merge(dest_vol, qc_sel, by = c("subjectkey", "eventname"))
+brain_qc_merged_meas <- brain_qc_merged %>% select(t2w_postqc_containertype:t2w_postqc_notes)
+brain_qc_merged_g3 <- brain_qc_merged[apply(brain_qc_merged_meas > 2, 1, any, na.rm = TRUE), ]
+
+brain_qc_merged_g3
+```
+
+# Get rows with qc values less than 3
+## the dataframes below will bbe okay by qc standards
+```{r}
+anti_dest_vol <- anti_join(brain_qc_merged, brain_qc_merged_g3, by = c("subjectkey", "eventname"))
+
+anti_dest_vol_markers <- colnames(anti_dest_vol %>% select(mrisdp_454:t2w_postqc_artifact))
+anti_dest_vol[, anti_dest_vol_markers] <- 
+  as.data.frame(apply(anti_dest_vol[, anti_dest_vol_markers], 2, as.numeric))
+
+exact_dup_rows <- duplicated(anti_dest_vol)
+nrow(anti_dest_vol[exact_dup_rows,]) #6820
+
+dup_rows <- duplicated(anti_dest_vol %>% select("subjectkey", "eventname"))
+nrow(anti_dest_vol[dup_rows,]) # 7054
+
+# Rows with duplicate subject and time, but different values, no explanation
+dup_rows_not_exact <- anti_join(anti_dest_vol[dup_rows,], anti_dest_vol[exact_dup_rows,])
+```
+
+# Merge exact duplicates into one
+```{r}
+anti_dest_vol <- anti_dest_vol[-which(exact_dup_rows),]
+
+```
+
+# Remove unexplained duplicates with different values and
+```{r}
+nrow(anti_dest_vol) # 18740
+nrow(anti_join(anti_dest_vol, dup_rows_not_exact)) # 18546
+
+dest_vol_no_dup_comp <- anti_join(anti_dest_vol, dup_rows_not_exact)
+
+# Check to see if no duplicated
+dest_vol_no_dup_comp[duplicated(dest_vol_no_dup_comp),]
+```
+
+
+# Standardization
+## should be standardized by males and females from entire dataset
+```{r}
+# Vector of Biomarkers (brain regions)
+markers <- colnames(dest_vol_no_dup_comp %>% select(mrisdp_454:mrisdp_604))
+
+## Men (14434) ##
+men_merge <- dest_vol_no_dup_comp[which(dest_vol_no_dup_comp$sex == "M"),]
+nrow(men_merge) 
+
+# scale biomarkers
+men_merge[, markers] <- as.data.frame(apply(men_merge[, markers], 2, as.numeric))
+men_merge[, markers] <- scale(men_merge[, markers])
+## Women (12882) ##
+women_merge <- dest_vol_no_dup_comp[which(dest_vol_no_dup_comp$sex == "F"),]
+nrow(women_merge) 
+
+
+# scale biomarkers
+women_merge[, markers] <- as.data.frame(apply(women_merge[, markers], 2, as.numeric))
+women_merge[, markers] <- scale(women_merge[, markers])
+
+## Remerge men and women ##
+stand_brain_dest_vol_no_dup_comp <- rbind(men_merge, women_merge)
+
+stand_dest_vol <- stand_brain_dest_vol_no_dup_comp %>% select(subjectkey:mrisdp_604)
+stand_dest_vol <- stand_dest_vol[complete.cases(stand_dest_vol), ]
+
+head(stand_dest_vol)
+dim(stand_dest_vol)
+
+write.csv(stand_dest_vol, "/Users/hansoochang/Drexel/ABCD/data/stand_dest_vol.csv")
+```
+
+There are many duplicates. Let try to see the quality control to see if this while clarify which value to use
+
+
+
+# Split into Timepoints
+## For comparison with Bio Age, we only need year 2
+```{r}
+stand_dest_vol_y2 <- stand_dest_vol %>% filter(eventname == "2_year_follow_up_y_arm_1")
+stand_dest_vol_base <- stand_dest_vol %>% filter(eventname == "baseline_year_1_arm_1")
+
+nrow(stand_dest_vol_y2) # 7442
+nrow(stand_dest_vol_base) # 11073
+
+write.csv(stand_dest_vol_y2, "/Users/hansoochang/Drexel/ABCD/data/stand_dest_vol_y2.csv")
+write.csv(stand_dest_vol_base, "/Users/hansoochang/Drexel/ABCD/data/stand_dest_vol_base.csv")
+```
+
+
+
+
+
+```{r}
+write.csv(stand_brain_dest_vol_y2, "/Users/hansoochang/Drexel/ABCD/data/stand_brain_dest_vol_y2.csv")
+write.csv(stand_brain_dest_vol_base, "/Users/hansoochang/Drexel/ABCD/data/stand_brain_dest_vol_base.csv")
+```
+
+
+
+
+
+# Descriptives
+```{r}
+length(unique(stand_brain_dest_vol$subjectkey)) # 11804
+table(stand_brain_dest_vol$eventname)
+
+
+```
+
+
+
+
+

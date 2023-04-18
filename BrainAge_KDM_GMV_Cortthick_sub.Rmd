@@ -1,0 +1,70 @@
+---
+title: "BrainAge_KDM_GMV_Cortthick_sub"
+output: html_document
+date: "2023-03-24"
+---
+
+
+```{r}
+#install.packages("flexsurv")
+#devtools::install_github("dayoonkwon/BioAge")
+#minstall.packages("pcaPP")
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(pcaPP)
+```
+
+
+# Read in Data
+```{r}
+healthy_gmv_cortthick_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cortthick_cbcl_phys_sub.csv")
+unhealthy_gmv_cortthick_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cortthick_cbcl_phys_sub.csv")
+
+healthy_gmv_cortthick_cbcl_phys_sub <- healthy_gmv_cortthick_cbcl_phys_sub[complete.cases(healthy_gmv_cortthick_cbcl_phys_sub),]
+unhealthy_gmv_cortthick_cbcl_phys_sub <- unhealthy_gmv_cortthick_cbcl_phys_sub[complete.cases(unhealthy_gmv_cortthick_cbcl_phys_sub),]
+
+healthy_gmv_cortthick_cbcl_phys_sub$sex <- healthy_gmv_cortthick_cbcl_phys_sub$s.x.x
+unhealthy_gmv_cortthick_cbcl_phys_sub$sex <- unhealthy_gmv_cortthick_cbcl_phys_sub$s.x.x
+```
+
+
+# Split
+```{r}
+train <- healthy_split(healthy_gmv_cortthick_cbcl_phys_sub)[[1]]
+test <- healthy_split(healthy_gmv_cortthick_cbcl_phys_sub)[[2]]
+
+
+nrow(train)
+nrow(test)
+```
+# Train
+```{r}
+kdm_train_sub <- kdm_train(train, "smri") 
+colnames(kdm_train_sub$data)
+```
+
+# project to test set (healthy)
+```{r}
+kdm_test_sub <- kdm_test(test, kdm_train_sub, "smri")
+get_val_metrics(kdm_test_sub)
+```
+
+# Project to unhealthy cohort
+```{r}
+kdm_unhealthy_sub <- kdm_test(unhealthy_gmv_cortthick_cbcl_phys_sub, kdm_train_sub, "smri")
+
+get_val_metrics(kdm_unhealthy_sub)
+```
+
+
+
+
+
+
+
+

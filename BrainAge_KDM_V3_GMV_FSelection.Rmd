@@ -1,0 +1,361 @@
+---
+title: "BrainAge_KDM_V3_GMV_FSelection"
+output: html_document
+date: "2023-03-23"
+---
+```{r}
+#install.packages("flexsurv")
+#devtools::install_github("dayoonkwon/BioAge")
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(pcaPP)
+library(stringr)
+library(stats)
+library(misty)
+library(emmeans)
+install.packages("BioStat")
+library(biostat)
+```
+
+
+Since KDM requires chronological age, we need chronological age in our biological markers. Convert age in months to age in years. 
+Files from BrainAge_KDM_V2.Rmd: 
+
+# Split into and test set from healthy cohort
+```{r}
+healthy_brain_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_gmv_cbcl_phys_sub.csv")
+unhealthy_brain_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_gmv_cbcl_phys_sub.csv")
+
+
+
+colnames(healthy_brain_cbcl_phys_sub)
+
+healthy_brain_cbcl_phys_sub$age <- as.numeric(healthy_brain_cbcl_phys_sub$interview_age)/12
+healthy_brain_cbcl_phys_sub$gender <- healthy_brain_cbcl_phys_sub$sex.x
+
+unhealthy_brain_cbcl_phys_sub$age <- as.numeric(unhealthy_brain_cbcl_phys_sub$interview_age)/12 
+unhealthy_brain_cbcl_phys_sub$gender <- unhealthy_brain_cbcl_phys_sub$sex.x
+
+# about 4 participants with no age info
+healthy_brain_cbcl_phys_sub <- healthy_brain_cbcl_phys_sub[complete.cases(healthy_brain_cbcl_phys_sub), ]
+unhealthy_brain_cbcl_phys_sub <- unhealthy_brain_cbcl_phys_sub[complete.cases(unhealthy_brain_cbcl_phys_sub), ]
+
+nrow(healthy_brain_cbcl_phys_sub) # 2626
+nrow(unhealthy_brain_cbcl_phys_sub) # 1054
+```
+
+
+ 
+
+
+# Train
+```{r}
+
+set.seed(18)
+#bm_healthy <- merge(bm, healthy_cbcl_phys, by = "subjectkey", all = FALSE)
+#nrow(bm_healthy) # 375
+#bm_unhealthy <- merge(bm, unhealthy_cbcl, by = "subjectkey", all = FALSE)
+#nrow(bm_unhealthy) # 283
+
+### Healthy Training ###
+samp <- sample(c(TRUE, FALSE), nrow(healthy_brain_cbcl_phys_sub), replace=TRUE, prob=c(0.6,0.4))
+brain_train_sub <- healthy_brain_cbcl_phys_sub[samp, ]
+brain_test_sub <- healthy_brain_cbcl_phys_sub[!samp, ]
+
+nrow(brain_train_sub) # 1571
+nrow(brain_test_sub) # 1055
+
+```
+
+
+```{r}
+brain_markers_sub <- colnames(brain_train_sub %>% dplyr::select(contains("smri")))
+brain_markers_sub
+# kdm_train_male <- kdm_calc(male_train, biomarkers = markers)
+# kdm_train_female <- kdm_calc(female_train, biomarkers = markers)'
+
+kdm_train_brain_sub <- kdm_calc(brain_train_sub, biomarkers = brain_markers_sub)
+```
+
+
+#Correlation tests between kdm_age and chronological age
+```{r}
+cor.test(as.numeric(kdm_train_brain_sub$data$kdm), as.numeric(kdm_train_brain_sub$data$age))
+rmse(as.numeric(kdm_train_brain_sub$data$kdm), as.numeric(kdm_train_brain_sub$data$age))
+mae(as.numeric(kdm_train_brain_sub$data$kdm), as.numeric(kdm_train_brain_sub$data$age))
+
+# Female
+# cor.test(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+# rmse(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+# mae(as.numeric(kdm_train_female$data$kdm), as.numeric(kdm_train_female$data$age))
+
+
+#plot age vs bioage
+#plot_ba(kdm_train$data, "kdm", "KDM\nBiological Age")
+
+```
+
+
+# Project to test
+```{r}
+# 
+kdm_test_brain_sub <- kdm_calc(brain_test_sub, biomarkers = brain_markers_sub, fit = kdm_train_brain_sub$fit, s_ba2 = 
+                       kdm_train_brain_sub$fit$s_ba2)
+
+# Female
+# kdm_female <- kdm_calc(female_test, biomarkers = markers, fit = kdm_train_female$fit, s_ba2 = 
+#                        kdm_train_female$fit$s_ba2)
+
+
+# kdm_data <- rbind(kdm_male$data, kdm_female$data)
+kdm_data_brain_sub <- kdm_test_brain_sub$data
+```
+
+# Correlation tests between kdm_age (both genders) and chronological age
+```{r}
+cor.test(as.numeric(kdm_data_brain_sub$kdm), as.numeric(kdm_data_brain_sub$age))
+rmse(as.numeric(kdm_data_brain_sub$kdm), as.numeric(kdm_data_brain_sub$age))
+mae(as.numeric(kdm_data_brain_sub$kdm), as.numeric(kdm_data_brain_sub$age))
+
+
+#plot age vs bioage
+plot_ba(kdm_data_brain_sub, "kdm", "KDM\nBiological Age")
+
+```
+
+
+# Project trained model onto Unhealthy cohort
+## Get prediction
+```{r}
+# project to unhealthy Group
+# males_unhealthy <- bm_unhealthy[which(bm_unhealthy$gender == "M"),]
+
+kdm_unhealthy_brain_sub <- kdm_calc(unhealthy_brain_cbcl_phys_sub, biomarkers = brain_markers_sub, fit = kdm_train_brain_sub$fit, s_ba2 = 
+                       kdm_train_brain_sub$fit$s_ba2)
+
+# Females
+#females_unhealthy <- bm_unhealthy[which(bm_unhealthy$gender == "F"),]
+
+#kdm_female_unhealthy <- kdm_calc(females_unhealthy, biomarkers = markers, fit = #kdm_train_female$fit, s_ba2 = 
+#                      kdm_train_female$fit$s_ba2)
+
+
+# merge
+# kdm_data_unhealthy <- rbind(kdm_male_unhealthy$data, kdm_female_unhealthy$data)
+kdm_data_unhealthy_brain_sub <- kdm_unhealthy_brain_sub$data 
+
+```
+
+
+# Correlation test between KDM age and Chronological Age for Unhealthy cohort
+```{r}
+cor.test(as.numeric(kdm_data_unhealthy_brain_sub$kdm), as.numeric(kdm_data_unhealthy_brain_sub$age))
+rmse(as.numeric(kdm_data_unhealthy_brain_sub$kdm), as.numeric(kdm_data_unhealthy_brain_sub$age))
+mae(as.numeric(kdm_data_unhealthy_brain_sub$kdm), as.numeric(kdm_data_unhealthy_brain_sub$age))
+
+```
+
+
+```{r}
+plot_ba(kdm_data_unhealthy_brain_sub, "kdm", "KDM\nBiological Age")
+plot(x = kdm_data_unhealthy_brain_sub$age, y = kdm_data_unhealthy_brain_sub$kdm_advance)
+```
+
+
+# Test for Normality for KDM
+```{r}
+# variances are approximately = 1
+
+# KDM Biological Age
+shapiro.test(kdm_data_brain_sub$kdm)
+shapiro.test(kdm_data_unhealthy_brain_sub$kdm)
+
+ggdensity(kdm_data_brain_sub$kdm)
+ggdensity(kdm_data_unhealthy_brain_sub$kdm)
+ggdensity(kdm_data_brain_sub$age) # For some reason, less 12 year olds in the data
+
+ggqqplot(kdm_data_brain_sub$kdm)
+ggqqplot(kdm_data_unhealthy_brain_sub$kdm)
+
+hist(kdm_data_brain_sub$kdm, xlab = "KDM Value")
+hist(kdm_data_brain_sub$kdm_advance, xlab = "KDM Advance Value")
+
+hist(kdm_data_unhealthy_brain_sub$kdm, xlab = "KDM Value")
+hist(kdm_data_unhealthy_brain_sub$kdm_advance, xlab = "KDM Advance Value")
+```
+
+
+
+# T-Test
+```{r}
+
+sd(kdm_data_brain_sub$kdm)
+sd(kdm_data_unhealthy_brain_sub$kdm)
+
+sd(kdm_data_brain_sub$kdm_advance)
+sd(kdm_data_unhealthy_brain_sub$kdm_advance)
+
+# T-Test for average healthy KDM and unhealthy KDM
+t.test(kdm_data_brain_sub$kdm, kdm_data_unhealthy_brain_sub$kdm, alternative = "two.sided", var.equal = T)
+
+# T-Test for average healthy KDM_advance and unhealthy KDM_advance
+t.test(kdm_data_brain_sub$kdm_advance, kdm_data_unhealthy_brain_sub$kdm_advance, alternative = "two.sided", var.equal = T)
+
+# t.test between chronological ages
+t.test(kdm_data_brain_sub$age, kdm_data_unhealthy_brain_sub$age, alternative = "two.sided", var.equal = TRUE)
+
+```
+
+# Add scanner information for covariate analyses
+```{r}
+mri <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_mri01.txt")
+mri <- mri[-1,]
+
+mri_sel <- mri %>% select(subjectkey, eventname, mri_info_manufacturer, mri_info_deviceserialnumber)
+
+mri_sel[mri_sel == ""] <- NA
+
+skim(mri_sel)
+```
+## Cleaning dataframe
+```{r}
+mri_sel_comp <- mri_sel[complete.cases(mri_sel),]
+
+mri_sel_comp_1 <- mri_sel_comp %>% filter(nchar(mri_info_deviceserialnumber) == 12)
+
+mri_sel_comp_2 <- mri_sel_comp_1 %>% filter(str_detect(mri_info_deviceserialnumber, "HASH"))
+
+string_vec <- c("SIEMENS", "Philips Medical Systems", "GE MEDICAL SYSTEMS")
+
+mri_sel_comp_3 <- mri_sel_comp_2 %>% filter(mri_info_manufacturer %in% string_vec)
+
+mri_sel_comp_3
+
+```
+
+## Add Site
+```{r}
+SiteId <- read.csv("/Users/hansoochang/Drexel/ABCD/data/abcd_lt01.csv")
+SiteId <- SiteId[-1,]
+SiteId[SiteId == ""] <- NA
+
+SiteId_site <- SiteId %>% select(subjectkey, eventname, site_id_l)
+```
+
+
+
+## Merge with KDM_V3 
+```{r}
+nrow(kdm_data_brain_sub) # 1058
+nrow(kdm_data_unhealthy_brain_sub) # 1059
+
+kdm_data_brain_sub$eventname <- kdm_data_brain_sub$eventname.x
+kdm_data_unhealthy_brain_sub$eventname <- kdm_data_unhealthy_brain_sub$eventname.x
+
+# Add Scanner
+gmv_mri_healthy <- merge(kdm_data_brain_sub, mri_sel_comp_2, by = c("subjectkey", "eventname"))
+gmv_mri_unhealthy <- merge(kdm_data_unhealthy_brain_sub, mri_sel_comp_2, by = c("subjectkey", "eventname"))
+
+# Add Site ID
+gmv_mri_healthy <- merge(gmv_mri_healthy, SiteId_site, by = c("subjectkey", "eventname"))
+gmv_mri_unhealthy <- merge(gmv_mri_unhealthy, SiteId_site, by = c("subjectkey", "eventname"))
+
+# Both health and unhealthy
+gmv_year2_cs <- rbind(kdm_data_brain_sub, kdm_data_unhealthy_brain_sub)
+dim(gmv_year2_cs)
+
+# This file is the 1058 healthy test set participants plus the 
+# 1059 unhealthy participants for feature selected gmv. We will use this to find correlations with
+# CBCL, Mania, etc.
+write.csv(gmv_year2_cs, "/Users/hansoochang/Drexel/ABCD/data/gmv_year2_cs.csv")
+
+
+```
+
+## Boxplots for ROIs
+```{r}
+table(gmv_mri_healthy$mri_info_deviceserialnumber)
+table(gmv_mri_healthy$mri_info_manufacturer)
+
+smri_list <- colnames(gmv_mri_healthy %>% select(contains("smri")))
+
+for (smri in smri_list) {
+  print(ggplot(gmv_mri_healthy, aes_string(x = "mri_info_manufacturer", y = smri)) +
+  geom_boxplot())
+}
+
+
+```
+
+## Boxplots for KDM
+```{r}
+ggplot(gmv_mri_healthy, aes(x = mri_info_manufacturer, y = kdm_advance)) +
+  geom_boxplot()
+
+ggplot(gmv_mri_unhealthy, aes(x = mri_info_manufacturer, y = kdm_advance)) +
+  geom_boxplot()
+
+ggplot(gmv_mri_healthy, aes(x = mri_info_manufacturer, y = age)) +
+  geom_boxplot()
+
+ggplot(gmv_mri_unhealthy, aes(x = mri_info_manufacturer, y = age)) +
+  geom_boxplot()
+
+```
+
+```{r}
+gmv_mri_healthy$mri_info_manufacturer <- as.factor(gmv_mri_healthy$mri_info_manufacturer)
+typeof(gmv_mri_healthy$kdm_advance)
+
+# summary(lm(data = gmv_mri_healthy, kdm_advance ~ age + mri_info_manufacturer))
+# summary(lm(data = gmv_mri_unhealthy, kdm_advance ~ age + mri_info_manufacturer))
+
+# test.welch(age ~ mri_info_manufacturer, data = gmv_mri_healthy)
+# test.welch(age ~ mri_info_manufacturer, data = gmv_mri_unhealthy)
+
+welch_anova_h <- test.welch(kdm_advance ~ mri_info_manufacturer, data = gmv_mri_healthy)
+welch_anova_u <- test.welch(kdm_advance ~ mri_info_manufacturer, data = gmv_mri_unhealthy)
+
+welch_anova_h
+
+fit_h <- aov(kdm_advance ~ mri_info_manufacturer, data = gmv_mri_healthy)
+fit_u <- aov(kdm_advance ~ mri_info_manufacturer, data = gmv_mri_unhealthy)
+
+TukeyHSD(fit_h)
+TukeyHSD(fit_u)
+```
+
+
+
+# Participants for Outcome Correlations
+```{r}
+nrow(kdm_data_brain_sub) # 1058
+nrow(kdm_data_unhealthy_brain_sub) # 1059
+
+gmv_year2_cs <- rbind(kdm_data_brain_sub, kdm_data_unhealthy_brain_sub)
+
+gmv_year2_cs <- merge(gmv_year2_cs, site, by = c("subjectkey", "eventname"))
+
+
+
+# This file is the 1058 healthy test set participants plus the 
+# 1059 unhealthy participants for feature selected gmv. We will use this to find correlations with
+# CBCL, Mania, etc.
+write.csv(gmv_year2_cs, "/Users/hansoochang/Drexel/ABCD/data/gmv_year2_cs.csv")
+
+```
+
+
+
+
+
+
+
+
+
+

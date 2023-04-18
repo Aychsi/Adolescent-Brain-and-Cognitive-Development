@@ -1,0 +1,367 @@
+---
+title: "BrainAge_CortThick"
+output: html_document
+date: "2023-03-15"
+---
+
+
+# Libraries
+```{r}
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(stringr)
+```
+
+# Read in data and get only necessary columns
+```{r}
+smrip <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_smrip10201.txt")
+colnames(smrip)
+
+# Select only cortical Thickness measures
+# Include summary measures as well for now
+# Make sure to not include white matter (ex. corpus callosum) or ventricles
+smrip_cortthick <- smrip %>% select(c("subjectkey", "sex", "eventname", "interview_age",
+                                "smri_thick_cdk_banksstslh":"smri_thick_cdk_mean"))
+
+smrip_cortthick[smrip_cortthick == ""] <- NA
+smrip_cortthick <- smrip_cortthick[-1,]
+smrip_cortthick <- smrip_cortthick[complete.cases(smrip_cortthick), ]
+
+skim(smrip_cortthick)
+head(smrip_cortthick)
+```
+
+# Quality Control for sMRI (Freesurfer)
+Exclusion is recommended if any of the five categories are rated as severe (a value of 3).
+https://www.sciencedirect.com/science/article/pii/S1053811919306822
+
+2.5.4. Post-processed sMRI quality control
+reviewers gauge the severity of five categories of image artifact or reconstruction inaccuracy: motion, intensity inhomogeneity, white matter underestimation, pial overestimation, and magnetic susceptibility artifact. Numeric values are assigned on a scale of 0–3, indicating absent, mild, moderate, and severe levels of each type of artifact,
+respectively. The reviewers assign an overall QC score indicating whether the cortical surface reconstruction is recommended for use (1) or
+recommended for exclusion (0). Exclusion is recommended if any of the five categories are rated as severe (a value of 3).
+
+```{r}
+qc <- read.delim("/Users/hansoochang/Drexel/ABCD/data/abcd_fsurfqc01.txt")
+qc[qc == ""] <- NA
+qc <- qc[-1,]
+
+# Remove any empty cases
+qc <- subset(qc, complete.cases(qc[, c("subjectkey", "eventname")]))
+
+# Replace 0 with baseline_year_1_arm_1 for eventname
+qc$eventname <- ifelse(qc$eventname == "0", "baseline_year_1_arm_1", qc$eventname)
+
+# Remove any subjectkey less than 16 characters long
+qc$subjectkey <- ifelse(nchar(qc$subjectkey) < 16, NA, qc$subjectkey)
+
+qc <- subset(qc, complete.cases(qc[, c("subjectkey", "eventname")]))
+
+qc$paired <- paste(qc$subjectkey, qc$eventname)
+
+skim(qc)
+```
+
+
+# Select all rows with any artifacts above 3
+```{r}
+# any value of fsqc_qc of 1
+qc_overall <- qc[qc$fsqc_qc == "1",]
+qc_overall <- qc_overall[!is.na(qc_overall$collection_id),]
+nrow(qc_overall) # 1671
+
+qc_art <- qc %>% select(subjectkey, sex, eventname, paired, fsqc_nrev:fsqc_qu_artifact)
+
+qc_art_meas <- qc_art %>% select(fsqc_qu_motion:fsqc_qu_artifact)
+
+# df with any measure at 3 (severe quality issue)
+qc_art_3 <- qc_art[apply(qc_art_meas > 2, 1, any, na.rm = TRUE), ]
+
+nrow(qc_art_3) # 942
+```
+
+
+# Remove participants with rejected QC values from smrip_cortthick
+```{r}
+nrow(smrip_cortthick) #46072
+nrow(qc_overall) # 1671
+nrow(qc_art_3) #942
+
+# Remove any value of fsqc_qc of 1 from main cortthick df
+smrip_cortthick_qc <- anti_join(smrip_cortthick, qc_overall, by = c("subjectkey", "eventname"))
+nrow(smrip_cortthick_qc) # 44037
+
+# Remove any artifacts above value of 3
+smrip_cortthick_qc <- anti_join(smrip_cortthick_qc, qc_art_3, by = c("subjectkey", "eventname"))
+nrow(smrip_cortthick_qc) # 42856
+
+# Filter duplicated rows
+smrip_cortthick_dup <- smrip_cortthick_qc[duplicated(smrip_cortthick_qc$subjectkey) & duplicated(smrip_cortthick_qc$eventname), ]
+
+# Keep only one of the duplicated values.
+smrip_cortthick_qc_uni <- unique(smrip_cortthick_dup, by = c("subjectkey", "eventname"))
+
+tail(smrip_cortthick_qc_uni[order(smrip_cortthick_qc_uni$subjectkey, smrip_cortthick_qc_uni$eventname),], 100)
+```
+
+# Convert sMRI values to numeric
+```{r}
+smrip_cortthick_qc_uni <- smrip_cortthick_qc_uni %>% 
+  mutate_at(vars(contains("smri")), as.numeric)
+
+smrip_cortthick_qc_uni <- smrip_cortthick_qc_uni[complete.cases(smrip_cortthick_qc_uni), ]
+
+skim(smrip_cortthick_qc_uni)
+
+tail(smrip_cortthick_qc_uni[order(smrip_cortthick_qc_uni$subjectkey, smrip_cortthick_qc_uni$eventname),], 100)
+```
+
+# Check Distributions.
+There seem to be outliers
+```{r}
+smri_list <- colnames(smrip_cortthick_qc_uni %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_cortthick_qc_uni[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+
+```
+
+# Remove Impossible Values
+```{r}
+# filter for any values greater than 3 SDs from the mean by column
+smri_outlier <- smrip_cortthick_qc_uni %>% mutate(across(contains("smri"), ~ abs(scale(.)) > 3)) %>%
+  filter(rowSums(across(contains("smri"))) > 0)
+
+smri_outlier$paired <- paste(smri_outlier$subjectkey, smri_outlier$eventname)
+
+smrip_cortthick_qc_uni$paired <- paste(smrip_cortthick_qc_uni$subjectkey, smrip_cortthick_qc_uni$eventname)
+
+# These are major outlier. Impossible values.
+smrip_cortthick_qc_uni_outlier <- smrip_cortthick_qc_uni %>% filter(paired %in% smri_outlier$paired)
+
+smrip_cortthick_qc_uni_norm <- smrip_cortthick_qc_uni %>% filter(!(paired %in% smri_outlier$paired))
+
+skim(smrip_cortthick_qc_uni_outlier)
+skim(smrip_cortthick_qc_uni_norm)
+
+nrow(smrip_cortthick_qc_uni_outlier) # 317
+nrow(smrip_cortthick_qc_uni_norm) # 15658
+
+
+### Check why there are so many negative values and very small values
+
+```
+
+
+# See Distributions of truncated data
+```{r}
+smri_list <- colnames(smrip_cortthick_qc_uni_norm %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_cortthick_qc_uni_norm[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+skim(smrip_cortthick_qc_uni_norm)
+```
+Check smri_vol_cdk_sufrrh to smri_vol_scs_subcroticalgv
+
+# Remove more extreme outliers
+```{r}
+# Select values less than 0 or greater than 10
+more_outliers <- smrip_cortthick_qc_uni_norm %>% 
+  filter_at(vars(smri_thick_cdk_banksstslh:smri_thick_cdk_mean), any_vars(. < 0 |. > 10))
+
+smrip_cortthick_qc_uni_big_norm <- anti_join(smrip_cortthick_qc_uni_norm, more_outliers, by = "paired")
+
+# This should be the dataframe with extreme outlier removed.
+smrip_cortthick_qc_uni_big_norm
+
+# Remove any value below 100 which would be impossible
+#smrip_cortthick_qc_uni_big_norm <- 
+#  smrip_cortthick_qc_uni_norm[!apply(smrip_cortthick_qc_uni_norm %>% 
+#                                    select("smri_vol_cdk_banksstslh":"smri_vol_scs_subcorticalgv") < 100, 
+#                                1, any, na.rm=TRUE), ]
+
+```
+
+
+# Check Distributions of all outliers removed
+```{r}
+smri_list <- colnames(smrip_cortthick_qc_uni_big_norm %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_cortthick_qc_uni_big_norm[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+```
+Seems pretty good. Will ask about large values.
+
+# Remove a few more extreme outliers
+```{r}
+smrip_cortthick_qc_uni_big_norm <- smrip_cortthick_qc_uni_big_norm %>% filter(!(smri_thick_cdk_fusiformlh < 2 |
+                                            smri_thick_cdk_linguallh < 1.5 |
+                                            smri_thick_cdk_ptcatelh < 1.5 | 
+                                            smri_thick_cdk_sufrlh < 2 | 
+                                            smri_thick_cdk_sutmlh < 2 | 
+                                            smri_thick_cdk_trvtmlh > 3.5 |
+                                            smri_thick_cdk_banksstsrh > 3.5 |
+                                            smri_thick_cdk_cdacaterh < 1.5 | 
+                                            smri_thick_cdk_cuneusrh > 3 | 
+                                            smri_thick_cdk_fusiformrh < 2 | 
+                                            smri_thick_cdk_ifplrh > 3.5 | 
+                                            smri_thick_cdk_ihcaterh < 1.5 | smri_thick_cdk_ihcaterh > 3.5 | 
+                                            smri_thick_cdk_paracnrh > 3.5 | 
+                                            smri_thick_cdk_parsobisrh > 4 | 
+                                            smri_thick_cdk_periccrh > 2.5 | 
+                                            smri_thick_cdk_ptcaterh < 2 | 
+                                            smri_thick_cdk_smrh < 2 | 
+                                            smri_thick_cf2_ptlh > 3 |
+                                            smri_thick_cf4_frlh > 3.5 | 
+                                            smri_thick_cf4_occlh > 3.5 | 
+                                            smri_thick_cf4_pllh < 2 | smri_thick_cf4_pllh > 3.5 | 
+                                            smri_thick_cf12_cnlh > 3.25 | 
+                                            smri_thick_cf12_occlh > 3 | 
+                                            smri_thick_cf12_ptoltmlh > 3.5 | 
+                                            smri_thick_cf4_plrh < 2 | 
+                                            smri_thick_cdk_meanlh < 2 | 
+                                            smri_thick_cdk_meanrh < 2 | 
+                                            smri_thick_cdk_mean < 2 | smri_thick_cdk_mean > 4 | 
+                                            smri_thick_cf12_aomtmlh < 2 | 
+                                            smri_thick_cf12_parsopclh > 3.5 | 
+                                            smri_thick_cf12_suplrh > 3.5 | 
+                                            smri_thick_cf12_aomtmrh < 2 | 
+                                            smri_thick_cf12_pcrh > 3.5))
+
+smrip_cortthick_qc_uni_big_norm %>% filter((smri_thick_cdk_fusiformlh < 2 |
+                                            smri_thick_cdk_linguallh < 1.5 |
+                                            smri_thick_cdk_ptcatelh < 1.5 | 
+                                            smri_thick_cdk_sufrlh < 2 | 
+                                            smri_thick_cdk_sutmlh < 2 | 
+                                            smri_thick_cdk_trvtmlh > 3.5 |
+                                            smri_thick_cdk_banksstsrh > 3.5 |
+                                            smri_thick_cdk_cdacaterh < 1.5 | 
+                                            smri_thick_cdk_cuneusrh > 3 | 
+                                            smri_thick_cdk_fusiformrh < 2 | 
+                                            smri_thick_cdk_ifplrh > 3.5 | 
+                                            smri_thick_cdk_ihcaterh < 1.5 | smri_thick_cdk_ihcaterh > 3.5 | 
+                                            smri_thick_cdk_paracnrh > 3.5 | 
+                                            smri_thick_cdk_parsobisrh > 4 | 
+                                            smri_thick_cdk_periccrh > 2.5 | 
+                                            smri_thick_cdk_ptcaterh < 2 | 
+                                            smri_thick_cdk_smrh < 2 | 
+                                            smri_thick_cf2_ptlh > 3 |
+                                            smri_thick_cf4_frlh > 3.5 | 
+                                            smri_thick_cf4_occlh > 3.5 | 
+                                            smri_thick_cf4_pllh < 2 | smri_thick_cf4_pllh > 3.5 | 
+                                            smri_thick_cf12_cnlh > 3.25 | 
+                                            smri_thick_cf12_occlh > 3 | 
+                                            smri_thick_cf12_ptoltmlh > 3.5 | 
+                                            smri_thick_cf4_plrh < 2 | 
+                                            smri_thick_cdk_meanlh < 2 | 
+                                            smri_thick_cdk_meanrh < 2 | 
+                                            smri_thick_cdk_mean < 2 | smri_thick_cdk_mean > 4 | 
+                                            smri_thick_cf12_aomtmlh < 2 | 
+                                            smri_thick_cf12_parsopclh > 3.5 | 
+                                            smri_thick_cf12_suplrh > 3.5 | 
+                                            smri_thick_cf12_aomtmrh < 2 | 
+                                            smri_thick_cf12_pcrh > 3.5))
+
+
+
+
+
+```
+
+
+# Check Distributions again
+```{r}
+
+smri_list <- colnames(smrip_cortthick_qc_uni_big_norm %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_cortthick_qc_uni_big_norm[, smri_list[smri]], xlab = smri_list[smri])
+}
+```
+
+
+
+
+# Split into Timepoints
+## For comparison with Bio Age, we only need year 2
+```{r}
+smrip_cortthick_qc_uni_y2 <- smrip_cortthick_qc_uni_big_norm %>% filter(eventname == "2_year_follow_up_y_arm_1")
+smrip_cortthick_qc_uni_base <- smrip_cortthick_qc_uni_big_norm %>% filter(eventname == "baseline_year_1_arm_1")
+
+nrow(smrip_cortthick_qc_uni_y2) # 6245
+nrow(smrip_cortthick_qc_uni_base) # 9092
+
+write.csv(smrip_cortthick_qc_uni_big_norm, "/Users/hansoochang/Drexel/ABCD/data/smrip_cortthick.csv")
+write.csv(smrip_cortthick_qc_uni_y2, "/Users/hansoochang/Drexel/ABCD/data/smrip_cortthick_y2.csv")
+write.csv(smrip_cortthick_qc_uni_base, "/Users/hansoochang/Drexel/ABCD/data/smrip_cortthick_base.csv")
+```
+
+
+# Check the relationship between CA and ROIs as a table
+## IMPORTANT: Kendall's Tau takes too long in regular cor() function. Use cor.fk from pcaPP package
+```{r}
+smri_list <- colnames(smrip_cortthick_qc_uni_y2 %>% dplyr::select(contains(c("smri"))))
+
+# Non-Parametric
+cor_sub <- smrip_cortthick_qc_uni_y2 %>% dplyr::select(contains(c("smri", "interview_age")))
+cor_sub$interview_age <- as.numeric(cor_sub$interview_age)
+cor_sub <- cor_sub[complete.cases(cor_sub), ]
+
+cor_matrix <- cor.fk(cor_sub)
+correlations <- cor_matrix["interview_age", smri_list]
+
+# Matrix with highest absolute correlations between ROI and age
+cor_mat_kendall <- sort(abs(correlations), decreasing = T)
+
+# Convert to Pearson's r and Cohen's d for effect size comparison
+cor_mat_kendall_to_r <- sin(pi*0.5*cor_mat_kendall)
+cor_mat_kendall_to_d <- 2*cor_mat_kendall_to_r/sqrt(1-cor_mat_kendall_to_r**2)
+```
+
+# Subset original df 
+# Get any ROIs with r above .1 
+```{r}
+sub_rois_cortthick <- as.data.frame(cor_mat_kendall_to_r) %>% filter(cor_mat_kendall_to_r < 0.1) %>% select(-cor_mat_kendall_to_r)
+
+sub_rois_cortthick <- tibble::rownames_to_column(sub_rois_cortthick, "a") 
+sub_rois_cortthick_list <- sub_rois_cortthick$a
+sub_rois_cortthick_list
+
+# From PhysMentHealth.Rmd
+unhealthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys.csv")
+healthy_cortthick_cbcl_phys <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys.csv")
+
+healthy_cortthick_cbcl_phys_sub <- healthy_cortthick_cbcl_phys %>% select(-sub_rois_cortthick_list)
+unhealthy_cortthick_cbcl_phys_sub <- unhealthy_cortthick_cbcl_phys %>% select(-sub_rois_cortthick_list)
+
+write.csv(healthy_cortthick_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys_sub.csv")
+write.csv(unhealthy_cortthick_cbcl_phys_sub, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys_sub.csv")
+```
+
+# Get Scanner Info
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

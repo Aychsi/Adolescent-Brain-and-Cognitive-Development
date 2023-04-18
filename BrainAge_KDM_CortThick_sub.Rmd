@@ -1,0 +1,76 @@
+---
+title: "BrainAge_KDM_CortThick_Sub"
+output: html_document
+date: "2023-03-29"
+---
+
+
+# Libraries
+```{r}
+#install.packages("flexsurv")
+#devtools::install_github("dayoonkwon/BioAge")
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+```
+
+
+# Read in Data
+```{r}
+healthy_cortthick_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_cortthick_cbcl_phys_sub.csv")
+unhealthy_cortthick_cbcl_phys_sub <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_cortthick_cbcl_phys_sub.csv")
+
+```
+
+
+# Split
+```{r}
+train <- healthy_split(healthy_cortthick_cbcl_phys)[[1]]
+test <- healthy_split(healthy_cortthick_cbcl_phys)[[2]]
+
+nrow(train)
+nrow(test)
+
+```
+
+# Train
+```{r}
+kdm_train_cortthick <- kdm_train(train, "smri") 
+```
+
+# project to test set (healthy)
+```{r}
+kdm_test_cortthick <- kdm_test(test, kdm_train_cortthick, "smri")
+get_val_metrics(kdm_test_cortthick)
+
+```
+
+# Project to unhealthy cohort
+```{r}
+kdm_unhealthy_cortthick <- kdm_test(unhealthy_cortthick_cbcl_phys, kdm_train_cortthick, "smri")
+
+get_val_metrics(kdm_unhealthy_cortthick)
+
+hist(kdm_unhealthy_cortthick$kdm_advance)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

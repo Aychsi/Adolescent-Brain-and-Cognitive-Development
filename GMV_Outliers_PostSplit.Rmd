@@ -1,0 +1,230 @@
+---
+title: "GMV_Outliers_PostSplit"
+output: html_document
+date: "2023-03-29"
+---
+
+
+# Libraries
+```{r}
+library(BioAge)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(Metrics)
+library(stats)
+library(skimr)
+library(stringr)
+```
+
+# Read in Data
+```{r}
+unhealthy_gmv <- read.csv("/Users/hansoochang/Drexel/ABCD/data/unhealthy_brain_cbcl_phys.csv")
+healthy_gmv <- read.csv("/Users/hansoochang/Drexel/ABCD/data/healthy_brain_cbcl_phys.csv")
+
+nrow(unhealthy_gmv) # 1274
+nrow(healthy_gmv) # 3253
+```
+
+
+# Check Distributions.
+## unhealthy
+```{r}
+smri_list <- colnames(unhealthy_gmv %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(unhealthy_gmv[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+```
+
+## Healthy
+```{r}
+smri_list <- colnames(healthy_gmv %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(unhealthy_gmv[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+```
+
+# Compare Distributions
+## PhysMent Health
+```{r}
+unhealthy_gmv$health <- "unhealthy"
+healthy_gmv$health <- "healthy"
+
+all_health_gmv <- rbind(unhealthy_gmv, healthy_gmv)
+
+smri_list <- colnames(all_health_gmv %>% select(contains("smri")))
+
+for (smri in smri_list) {
+  print(smri)
+  print(ggplot(all_health_gmv, aes_string(smri, fill = "health"))
+   + geom_density(position = "identity", alpha = 0.5))
+}
+```
+
+# Remove Impossible Values
+## Healthy
+```{r}
+# filter for any values greater than 3 SDs from the mean by column
+smri_outlier_healthy <- healthy_gmv %>% mutate(across(contains("smri"), ~ abs(scale(.)) > 3)) %>%
+  filter(rowSums(across(contains("smri"))) > 0)
+
+smri_outlier_healthy$paired <- paste(smri_outlier_healthy$subjectkey, smri_outlier_healthy$eventname)
+
+healthy_gmv$paired <- paste(healthy_gmv$subjectkey, healthy_gmv$eventname)
+
+# These are major outlier. Impossible values.
+smrip_gvol_qc_uni_outlier_h <- healthy_gmv %>% filter(paired %in% smri_outlier_healthy$paired)
+
+smrip_gvol_qc_uni_norm_h <- healthy_gmv %>% filter(!(paired %in% smri_outlier_healthy$paired))
+```
+
+# See Distributions of truncated data
+## Healthy
+```{r}
+smri_list <- colnames(smrip_gvol_qc_uni_norm_h %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_gvol_qc_uni_norm_h[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+```
+
+# Remove Healthy Outliers and more impossible values
+```{r}
+smrip_gvol_qc_uni_norm_h <- smrip_gvol_qc_uni_norm_h %>% filter(!(smri_vol_cdk_paracnlh > 8000 | 
+                                    smri_vol_cdk_insulalh > 14000 | 
+                                    smri_vol_cdk_ehinalrh > 4500 | 
+                                    smri_vol_cdk_paracnrh > 9000 | 
+                                    smri_vol_cdk_sufrrh > 45000 | 
+                                    smri_vol_cdk_tmpolerh < 1000 | 
+                                    smri_vol_cdk_totallh < 1e+05 |
+                                    smri_vol_cdk_totalrh < 1e+05 | 
+                                    smri_vol_cdk_total < 2e+05 | 
+                                    smri_vol_scs_crbcortexlh < 20000 |
+                                    smri_vol_scs_tplh < 4000 | smri_vol_scs_tplh > 15000 | 
+                                    smri_vol_scs_caudatelh < 500 | smri_vol_scs_caudatelh > 10000 | 
+                                    smri_vol_scs_putamenlh < 1000 | smri_vol_scs_putamenlh > 10000 | 
+                                    smri_vol_scs_hpuslh < 2000 | smri_vol_scs_hpuslh > 7000 |
+                                    smri_vol_scs_amygdalalh < 500 |
+                                    smri_vol_scs_vedclh < 0 | smri_vol_scs_vedclh > 20000 | 
+                                    smri_vol_scs_crbcortexrh < 20000 | 
+                                    smri_vol_scs_caudaterh < 2000 |
+                                    smri_vol_scs_putamenrh < 2000 |
+                                    smri_vol_scs_pallidumrh < 500 |
+                                    smri_vol_scs_vedcrh < 2000 | 
+                                    smri_vol_scs_subcorticalgv < 20000))
+
+smrip_gvol_qc_uni_norm_h %>% filter(smri_vol_cdk_paracnlh > 8000 | 
+                                    smri_vol_cdk_insulalh > 14000 | 
+                                    smri_vol_cdk_ehinalrh > 4500 | 
+                                    smri_vol_cdk_paracnrh > 9000 | 
+                                    smri_vol_cdk_sufrrh > 45000 | 
+                                    smri_vol_cdk_tmpolerh < 1000 | 
+                                    smri_vol_cdk_totallh < 1e+05 |
+                                    smri_vol_cdk_totalrh < 1e+05 | 
+                                    smri_vol_cdk_total < 2e+05 | 
+                                    smri_vol_scs_crbcortexlh < 20000 |
+                                    smri_vol_scs_tplh < 4000 | smri_vol_scs_tplh > 15000 | 
+                                    smri_vol_scs_caudatelh < 500 | smri_vol_scs_caudatelh > 10000 | 
+                                    smri_vol_scs_putamenlh < 1000 | smri_vol_scs_putamenlh > 10000 | 
+                                    smri_vol_scs_hpuslh < 2000 | smri_vol_scs_hpuslh > 7000 |
+                                    smri_vol_scs_amygdalalh < 500 |
+                                    smri_vol_scs_vedclh < 0 | smri_vol_scs_vedclh > 20000 | 
+                                    smri_vol_scs_crbcortexrh < 20000 | 
+                                    smri_vol_scs_caudaterh < 2000 |
+                                    smri_vol_scs_putamenrh < 2000 |
+                                    smri_vol_scs_pallidumrh < 500 |
+                                    smri_vol_scs_vedcrh < 2000 | 
+                                    smri_vol_scs_subcorticalgv < 20000) 
+
+nrow(smrip_gvol_qc_uni_norm_h) # 14558
+
+
+```
+
+
+```{r}
+smri_list <- colnames(smrip_gvol_qc_uni_norm_h %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_gvol_qc_uni_norm_h[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+```
+
+
+# Remove Impossible Values
+## unhealthy
+```{r}
+# filter for any values greater than 3 SDs from the mean by column
+smri_outlier_unhealthy <- unhealthy_gmv %>% mutate(across(contains("smri"), ~ abs(scale(.)) > 3)) %>%
+  filter(rowSums(across(contains("smri"))) > 0)
+
+smri_outlier_unhealthy$paired <- paste(smri_outlier_unhealthy$subjectkey, smri_outlier_unhealthy$eventname)
+
+unhealthy_gmv$paired <- paste(unhealthy_gmv$subjectkey, unhealthy_gmv$eventname)
+
+# These are major outlier. Impossible values.
+smrip_gvol_qc_uni_outlier_u <- unhealthy_gmv %>% filter(paired %in% smri_outlier_unhealthy$paired)
+
+smrip_gvol_qc_uni_norm_u <- unhealthy_gmv %>% filter(!(paired %in% smri_outlier_unhealthy$paired))
+```
+
+# See Distributions of truncated data
+## unhealthy
+```{r}
+smri_list <- colnames(smrip_gvol_qc_uni_norm_u %>% select(contains("smri")))
+
+for (smri in 1:length(smri_list)) {
+  hist(smrip_gvol_qc_uni_norm_u[, smri_list[smri]], xlab = smri_list[smri])
+}
+
+```
+
+
+# Compare Distributions after outliers removed
+## PhysMent Health
+```{r}
+smrip_gvol_qc_uni_norm_u$health <- "unhealthy"
+smrip_gvol_qc_uni_norm_h$health <- "healthy"
+
+all_health_gmv <- rbind(smrip_gvol_qc_uni_norm_u, smrip_gvol_qc_uni_norm_h)
+
+smri_list <- colnames(all_health_gmv %>% select(contains("smri")))
+
+for (smri in smri_list) {
+  print(smri)
+  print(ggplot(all_health_gmv, aes_string(smri, fill = "health"))
+   + geom_density(position = "identity", alpha = 0.5))
+}
+```
+
+# Write
+```{r}
+write.csv(smrip_gvol_qc_uni_norm_u, "/Users/hansoochang/Drexel/ABCD/data/unhealthy_brain_cbcl_phys.csv")
+write.csv(smrip_gvol_qc_uni_norm_h, "/Users/hansoochang/Drexel/ABCD/data/healthy_brain_cbcl_phys.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
